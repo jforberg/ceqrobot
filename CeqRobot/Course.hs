@@ -1,0 +1,4 @@
+module CeqRobot.Course
+(
+)
+where
