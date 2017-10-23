@@ -1,4 +1,0 @@
-module CeqRobot.Scraper
-(
-)
-where
