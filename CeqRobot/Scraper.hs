@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module CeqRobot.Scraper
-( scrapeCourses
+( genLotUrl
+, genCeqUrl
+, scrapeLot
+, scrapeCeq
 )
 where
 
@@ -17,23 +20,29 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Text.Encoding
 import Network.HTTP.Conduit
+import Text.Read
 import Text.HTML.Scalpel
 import Text.HTML.TagSoup
 
 import CeqRobot.Model
 import CeqRobot.Database
+import CeqRobot.Util
 
-baseUrl = "https://kurser.lth.se/lot/?lasar=17_18&sort1=lp&sort2=slut_lp&sort3=namn&prog=F&forenk=t&val=program&soek=t"
+genLotUrl :: Text
+genLotUrl =
+    "https://kurser.lth.se/lot/?lasar=17_18&sort1=lp&sort2=slut_lp&sort3=namn&prog=F&forenk=t&val=program&soek=t"
 
---baseUrl2 = "http://www.ceq.lth.se/rapporter/2016_VT/LP1/FFFF05_2016_VT_LP1_slutrapport.html"
-baseUrl2 = "http://www.ceq.lth.se/rapporter/2016_HT/LP2/FAFA05_2016_HT_LP2_slutrapport.html"
+genCeqUrl :: Text -> Period -> Text
+genCeqUrl code (Period year sem p) =
+    "http://www.ceq.lth.se/rapporter/{}_{}/LP{}/{}_{}_{}_LP{}_slutrapport.html" `format`
+    (year, show sem, p, code, year, show sem, p)
 
-test = scrapeCourses baseUrl
+test = scrapeLot genLotUrl
 
 {-
-test = do
+testSaveCourse = do
     conn <- getConn
-    res <- scrapeCourses baseUrl
+    res <- scrapeCourses genCourseUrl
     let cs = nubBy ((==) `on` courseCode) . concat . map snd $ res
     forM_ cs $ \c -> do
         insertCourse conn c
@@ -42,11 +51,15 @@ test = do
 
 test2 :: IO (Maybe Ceq)
 test2 = do
-    rs <- fromJust . ceqRows <$> loadTagsLatin1 baseUrl2
-    return . ceqFromMap "asdf12" "2017_HT_LP1" "http://asdfs" . mapFromRows $ rs
+    let url = genCeqUrl "FHLF01" (Period 2016 VT 2)
+    scrapeCeq url
 
-scrapeCourses :: Text -> IO [(Text, [Course])]
-scrapeCourses url = catMaybes . map scrapeTable . tablesTags <$> loadTagsUtf8 url
+testSaveCeq = do
+    let url = genCeqUrl "FHLF01" (Period 2016 VT 2)
+    Just c <- scrapeCeq url
+    print c
+    conn <- getConn
+    insertCeq conn c
 
 loadHttp decoder url = decoder . LBS.toStrict <$> simpleHttp (T.unpack url)
 
@@ -54,93 +67,201 @@ loadTagsUtf8 = (parseTags <$>) . loadHttp decodeUtf8
 
 loadTagsLatin1 = (parseTags <$>) . loadHttp decodeLatin1
 
+--
+-- LOT
+--
+
+scrapeLot :: Text -> IO ([(Course, CourseRelation)], [Masters])
+scrapeLot url = do
+    ts <- tablesTags <$> loadTagsUtf8 url
+
+    let cs = concat . catMaybes . map scrapeCourses $ ts
+        ms = catMaybes . map scrapeMasters $ ts
+
+    return (cs, ms)
+
 tablesTags ts = partitions (isTagOpenName "h3") ts
 
-scrapeTable ts = scrape table ts
+scrapeMasters = scrape masters
+    where masters = do
+              mcode <- readMasters <$> attr "id" ("h3" @: [])
+              mname <- (T.drop 3 . snd . T.breakOn " - ") <$> text ("h3" @: [])
+              case mcode of
+                  "" -> mzero
+                  _ -> return $ Masters "f" mcode mname
+
+readMasters tid | T.take 2 tid == "ak"    = ""
+                | otherwise               = tid
+
+scrapeCourses = scrape table
     where table = do
-              cat <- attr "id" ("h3" @: [])
+              tid <- attr "id" ("h3" @: [])
 
-              case cat of
+              case tid of
                   "exjobb" -> mzero
-                  _ -> do
-                      courses <- chroots ("tr" @: []) course
-                      return (cat, courses)
+                  _ -> chroots ("tr" @: []) (course tid)
 
-          course = do
+          course tid = do
               cls <- attr "class" ("tr" @: [])
-              as <- texts ("td" @: [])
-              case courseFromRow cls as of
+              tds <- texts ("td" @: [])
+              case courseFromRow "F" cls tid tds of
                   Just c -> return c
                   Nothing -> mzero
 
-courseFromRow cls as = let as_ = map T.strip as; cls_ = T.strip cls in
-    case (cls_, as_) of
+courseFromRow prog_ cls_ tid_ tds_ =
+    let cls = T.strip cls_ -- Used to identify periodical courses
+        tid = T.strip tid_ -- Used to distinguish master's/basic courses
+        programme = T.strip prog_
+        tds = map T.strip tds_
+
+    in case (cls, tds) of
     -- Periodic course, masters
     ("periodiserad", [code, credits, level, _, _, year, _, _, name, comment, _, _, _]) ->
-        Just $ Course { courseCode = readCode code
-                      , courseCredits = readCredits credits
-                      , courseLevel = readLevel level
-                      , courseName = name
-                      , courseComment = readComment comment
-                      , courseYear = readYear year
-                      , coursePeriod = Periodical
-                      }
+        Just $ genCourseAndRelation ( code
+                                    , credits
+                                    , level
+                                    , Just year
+                                    , name
+                                    , comment
+                                    , True
+                                    , ""
+                                    , ""
+                                    , ""
+                                    , ""
+                                    , programme
+                                    , tid
+                                    )
     -- Periodic course, elective
     ("periodiserad", [code, credits, level, _, year, _, _, name, comment, _, _, _]) ->
-        Just $ Course { courseCode = readCode code
-                      , courseCredits = readCredits credits
-                      , courseLevel = readLevel level
-                      , courseName = name
-                      , courseComment = readComment comment
-                      , courseYear = readYear year
-                      , coursePeriod = Periodical
-                      }
+        Just $ genCourseAndRelation ( code
+                                    , credits
+                                    , level
+                                    , Just year
+                                    , name
+                                    , comment
+                                    , True
+                                    , ""
+                                    , ""
+                                    , ""
+                                    , ""
+                                    , programme
+                                    , tid
+                                    )
     -- Table headers
     (_, []) ->
         Nothing
     -- Basic courses
     (_, [code, credits, level, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
-        Just $ Course { courseCode = readCode code
-                      , courseCredits = readCredits credits
-                      , courseLevel = readLevel level
-                      , courseName = name
-                      , courseComment = readComment comment
-                      , courseYear = Nothing
-                      , coursePeriod = readPeriod lp1 lp2 lp3 lp4
-                      }
+        Just $ genCourseAndRelation ( code
+                                    , credits
+                                    , level
+                                    , Nothing
+                                    , name
+                                    , comment
+                                    , False
+                                    , lp1
+                                    , lp2
+                                    , lp3
+                                    , lp4
+                                    , programme
+                                    , tid
+                                    )
     -- Masters courses
     (_, [code, credits, level, _, _, year, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
-        Just $ Course { courseCode = readCode code
-                      , courseCredits = readCredits credits
-                      , courseLevel = readLevel level
-                      , courseName = name
-                      , courseComment = readComment comment
-                      , courseYear = readYear year
-                      , coursePeriod = readPeriod lp1 lp2 lp3 lp4
-                      }
+        Just $ genCourseAndRelation ( code
+                                    , credits
+                                    , level
+                                    , Just year
+                                    , name
+                                    , comment
+                                    , False
+                                    , lp1
+                                    , lp2
+                                    , lp3
+                                    , lp4
+                                    , programme
+                                    , tid
+                                    )
     -- Elective courses
     (_, [code, credits, level, _, year, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
-        Just $ Course { courseCode = readCode code
-                      , courseCredits = readCredits credits
-                      , courseLevel = readLevel level
-                      , courseName = name
-                      , courseComment = readComment comment
-                      , courseYear = readYear year
-                      , coursePeriod = readPeriod lp1 lp2 lp3 lp4
-                      }
-readCode = T.toUpper
+        Just $ genCourseAndRelation ( code
+                                    , credits
+                                    , level
+                                    , Just year
+                                    , name
+                                    , comment
+                                    , False
+                                    , lp1
+                                    , lp2
+                                    , lp3
+                                    , lp4
+                                    , programme
+                                    , tid
+                                    )
 
-readCredits = let f ',' = '.'; f c = c in read . map f . T.unpack
+-- Mega function from hell. Handles all parsing etc. of course metadata
+genCourseAndRelation ( code
+                     , credits
+                     , level
+                     , year
+                     , name
+                     , comment
+                     , periodical
+                     , lp1
+                     , lp2
+                     , lp3
+                     , lp4
+                     , programme
+                     , tid
+                     ) =
+    ( Course { courseCode = rCode code
+             , courseCredits = rCredits credits
+             , courseLevel = rLevel level
+             , courseName = rName name
+             }
+    , CourseRelation { courseRelCode = rCode code
+                     , courseRelProgramme = rProgramme programme
+                     , courseRelType = rType tid
+                     , courseRelMasters = readMasters tid
+                     , courseRelYear = rYear year tid
+                     , courseRelComment = rComment comment
+                     , courseRelPeriod = rPeriod periodical lp1 lp2 lp3 lp4
+                     }
+    )
+    where rCode = T.toUpper
 
-readComment = T.strip . T.drop 1
+          rCredits = let f ',' = '.'; f c = c in read . map f . T.unpack
 
-readYear = Just . toEnum . subtract 1 . read . T.unpack
+          rLevel "G1" = LevelG1
+          rLevel "G2" = LevelG2
+          rLevel "A" = LevelA
 
-readPeriod lp1 lp2 lp3 lp4 = Lp (lp1 /= "") (lp2 /= "") (lp3 /= "") (lp4 /= "")
+          -- tid is like "ak1_O"
+          rYear Nothing tid = fromIntegral . tread . T.take 1 . T.drop 2 $ tid
+          rYear (Just y) _ = fromIntegral . tread $ y
 
-readLevel "G1" = LevelG1
-readLevel "G2" = LevelG2
-readLevel "A" = LevelA
+          rName = id
+
+          -- like "X\n       asdf"
+          rComment = T.strip . T.drop 1
+
+          rPeriod True _ _ _ _ = Periodical
+          rPeriod False lp1 lp2 lp3 lp4 =
+              Lp (lp1 /= "") (lp2 /= "") (lp3 /= "") (lp4 /= "")
+
+          rProgramme = T.toUpper
+
+          rType tid | T.take 2 tid == "ak"   = case (T.takeEnd 1 tid) of
+                                                   "O" -> Obligatory
+                                                   "A" -> AltObligatory
+                    | otherwise              = Elective
+
+--
+-- CEQ
+--
+
+scrapeCeq :: Text -> IO (Maybe Ceq)
+scrapeCeq url = ceqFromMap url . mapFromRows . fromJust . ceqRows <$> loadTagsLatin1 url
 
 ceqRows ts = map (map T.strip) <$> scrape rows ts
     where rows = chroots ("tr" @: []) row
@@ -152,43 +273,83 @@ mapFromRows = M.fromList . entries
           entries ([]:rs) = entries rs
           entries ((c:cs):rs) = (c, cs) : entries rs
 
-ceqFromMap :: Text -> Text -> Text -> Map Text [Text] -> Maybe Ceq
-ceqFromMap code period url m = do
-    let tread = read . T.unpack
+ceqFromMap :: Text -> Map Text [Text] -> Maybe Ceq
+ceqFromMap url m = do
+    let ltm = listToMaybe
 
-    -- translate from form <td>123 / 49%</td>
-    let readNum :: Text -> Int
-        readNum = tread . fst . T.breakOn " / "
+        -- on the form "123 / 49%"
+        rSlashed = r . T.strip . fst . T.breakOn "/"
+            where r "" = 0
+                  r s = tread s
 
-    -- translate from form <td>+123</td><td>49</td>
-    let readTwo :: [Text] -> Maybe (Int, Int)
-        readTwo [a, b] = Just (tread $ T.drop 1 a, tread b)
-        readTwo _ = Nothing
+        -- on the form "+123" or "-123" or "0"
+        rSigned s | T.take 1 s == "+"    = tread $ T.drop 1 s
+                  | otherwise            = tread s
 
-    reg_ <-  m M.!? "Antal registrerade på kursen"
-    reg <- tread <$> listToMaybe reg_
+        -- on the form "FFFF05     <crap>"
+        rCode :: Text -> Maybe Text
+        rCode = ltm . T.words
 
-    pass_ <- m M.!? "Antal godkända/andel av registrerade"
-    pass <- readNum <$> listToMaybe pass_
+        f = (m M.!?)
 
-    resp_ <- m M.!? "Antal enkätsvar/svarsfrekvens"
-    resp <- readNum <$> listToMaybe resp_
+    -- Required info; failed parse => failed scrape
+    code <- f "Kurskod" >>= ltm >>= rCode
+    year <- f "Läsår" >>= ltm
+    lp <- f "Kursen slutade i läsperiod" >>= ltm
+    period <- readCeqPeriod year lp
 
-    rel_ <- m M.!? "Kursen känns angelägen för min utbildning"
-    (relmean, reldev) <- readTwo rel_
+    -- Optional info; failed parse => Nothing field
+    let reg = f "Antal registrerade på kursen" >>= fmap tread . ltm
+        pass = f "Antal godkända/andel av registrerade" >>= fmap rSlashed . ltm
+        resp = f "Antal enkätsvar/svarsfrekvens" >>= fmap rSlashed . ltm
+        qual = f "God undervisning" >>= fmap rSigned . ltm
+        goal = f "Tydliga mål" >>= fmap rSigned . ltm
+        und = f "Förståelseinriktad examination" >>= fmap rSigned . ltm
+        work = f "Lämplig arbetsbelastning" >>= fmap rSigned . ltm
+        rel = f "Kursen känns angelägen för min utbildning" >>= fmap rSigned. ltm
+        sat = f "Överlag är jag nöjd med den här kursen" >>= fmap rSigned . ltm
 
-    sat_ <- m M.!? "Överlag är jag nöjd med den här kursen"
-    (satmean, satdev) <- readTwo sat_
+    Just $ Ceq { ceqCourseCode = code
+               , ceqPeriod = period
+               , ceqUrl = url
+               , ceqRegistered = reg
+               , ceqPassed = pass
+               , ceqResponded = resp
+               , ceqQuality = qual
+               , ceqGoals = goal
+               , ceqUnderstanding = und
+               , ceqWorkload = work
+               , ceqRelevance = rel
+               , ceqSatisfaction= sat
+               }
 
-    return $ Ceq
-        { ceqCourseCode = code
-        , ceqPeriod = period
-        , ceqUrl = url
-        , ceqStudentsReg = reg
-        , ceqStudentsPass = pass
-        , ceqStudentsResp = resp
-        , ceqRelevancyMean = relmean
-        , ceqRelevancyStddev = reldev
-        , ceqSatisfactionMean = satmean
-        , ceqSatisfactionStddev = satdev
-        }
+readCeqPeriod :: Text -> Text -> Maybe Period
+readCeqPeriod year period = do
+    -- year on the form "201516"
+    let y_ = T.take 4 $ year
+    y <- treadMaybe y_
+
+    -- period on the form "VT_LP2"
+    let s_ = T.take 2 $ period
+    s <- case T.toLower s_ of
+        "vt" -> Just VT
+        "ht" -> Just HT
+        _ -> Nothing
+
+    let p_ = T.drop 3 $ period
+    p <- case T.toLower p_ of
+        "lp1" -> Just 1
+        "lp2" -> Just 2
+        _ -> Nothing
+
+    return $ case s of
+        HT -> Period y s p
+        VT -> Period (y + 1) s p
+
+tread = read . T.unpack
+
+treadMaybe = readMaybe . T.unpack
+
+--
+-- Master's
+--

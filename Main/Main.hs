@@ -3,6 +3,7 @@ module Main
 )
 where
 
-main = do
-    print "hej"
+import CeqRobot.Control (run)
+
+main = run
 
