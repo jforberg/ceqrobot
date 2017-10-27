@@ -15,11 +15,7 @@ import Data.Int
 import Data.Text (Text)
 
 data CourseLevel = LevelG1 | LevelG2 | LevelA
-
-instance Show CourseLevel where
-    show LevelG1 = "G1"
-    show LevelG2 = "G2"
-    show LevelA = "A"
+    deriving (Eq, Show, Read)
 
 data CoursePeriod = Lp Bool Bool Bool Bool | Periodical
     deriving (Eq)
@@ -30,8 +26,8 @@ instance Show CoursePeriod where
         where f _ False = ""
               f n True = show n
 
-data Semester = HT | VT
-    deriving (Show, Eq)
+data Semester = VT | HT
+    deriving (Eq, Ord, Show, Read)
 
 data Period = Period Int32 Semester Int32
     deriving (Eq)
@@ -39,8 +35,12 @@ data Period = Period Int32 Semester Int32
 instance Show Period where
     show (Period y s p) = show y ++ " " ++ show s ++ show p
 
+instance Ord Period where
+    (Period y1 s1 p1) `compare` (Period y2 s2 p2) =
+        (y1, s1, p1) `compare` (y2, s2, p2)
+
 data CourseType = Obligatory | AltObligatory | Elective
-    deriving (Show, Eq)
+    deriving (Eq, Show, Read)
 
 data Course = Course
     { courseCode :: Text
