@@ -8,10 +8,12 @@ module CeqRobot.Database
 , insertCourse
 , loadCoursesAndRelations
 , insertCourseRelation
+, deleteCourseRelations
 , insertMasters
 , loadMasters
 , insertCeq
 , loadCeqs
+, loadCourseAliases
 , queueScrape
 , peekQueueScrape
 , dequeueScrape
@@ -99,6 +101,11 @@ insertCourseRelation conn cr =
 
 encPeriod Periodical = (True, False, False, False, False)
 encPeriod (Lp x1 x2 x3 x4) = (False, x1, x2, x3, x4)
+
+deleteCourseRelations :: PGConnection -> IO ()
+deleteCourseRelations conn = void $ pgExecute conn [pgSQL|
+        delete from course_relation
+    |]
 
 loadCoursesAndRelations :: PGConnection -> IO [(Course, CourseRelation)]
 loadCoursesAndRelations conn = do
@@ -253,6 +260,17 @@ loadCeqs conn = do
                       , ceqRelevance = rl
                       , ceqSatisfaction = sa
                       }
+
+loadCourseAliases :: PGConnection -> IO [(Text, Text)]
+loadCourseAliases conn = catMaybes . map f <$> pgQuery conn [pgSQL|
+        select distinct greatest(c1.code, c2.code)
+                      , least(c1.code, c2.code)
+        from course c1, course c2
+        where c1.name = c2.name and c1.code != c2.code
+    |]
+        where f (Nothing, _) = Nothing
+              f (_, Nothing) = Nothing
+              f (Just a, Just b) = Just (a, b)
 
 queueScrape :: PGConnection -> Text -> Text -> IO ()
 queueScrape conn t ref = void $ pgExecute conn [pgSQL|

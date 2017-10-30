@@ -1,4 +1,5 @@
 var webpack = require('webpack')
+  , Copy = require('copy-webpack-plugin')
 
 module.exports = {
   context: __dirname + '/src',
@@ -10,6 +11,9 @@ module.exports = {
     path: __dirname + '/dist'
   },
   plugins: [
+    new Copy(
+      [ { from: '../static' } ]
+    ),
   ],
   module: {
     loaders: [

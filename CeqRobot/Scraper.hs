@@ -28,38 +28,15 @@ import CeqRobot.Model
 import CeqRobot.Database
 import CeqRobot.Util
 
-genLotUrl :: Text
-genLotUrl =
-    "https://kurser.lth.se/lot/?lasar=17_18&sort1=lp&sort2=slut_lp&sort3=namn&prog=F&forenk=t&val=program&soek=t"
+genLotUrl :: Int -> Text
+genLotUrl y =
+    "https://kurser.lth.se/lot/?lasar={}_{}&sort1=lp&sort2=slut_lp&sort3=namn&prog=F&forenk=t&val=program&soek=t" `format`
+    (y `mod` 100, (y + 1) `mod` 100)
 
 genCeqUrl :: Text -> Period -> Text
 genCeqUrl code (Period year sem p) =
     "http://www.ceq.lth.se/rapporter/{}_{}/LP{}/{}_{}_{}_LP{}_slutrapport.html" `format`
     (year, show sem, p, code, year, show sem, p)
-
-test = scrapeLot genLotUrl
-
-{-
-testSaveCourse = do
-    conn <- getConn
-    res <- scrapeCourses genCourseUrl
-    let cs = nubBy ((==) `on` courseCode) . concat . map snd $ res
-    forM_ cs $ \c -> do
-        insertCourse conn c
-        TIO.putStrLn $ courseName c
--}
-
-test2 :: IO (Maybe Ceq)
-test2 = do
-    let url = genCeqUrl "FHLF01" (Period 2016 VT 2)
-    scrapeCeq url
-
-testSaveCeq = do
-    let url = genCeqUrl "FHLF01" (Period 2016 VT 2)
-    Just c <- scrapeCeq url
-    print c
-    conn <- getConn
-    insertCeq conn c
 
 loadHttp decoder url = decoder . LBS.toStrict <$> simpleHttp (T.unpack url)
 

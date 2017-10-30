@@ -16,6 +16,7 @@ main = do
     ms <- loadMasters conn
     cs_crs <- loadCoursesAndRelations conn
     cqs <- loadCeqs conn
+    cas <- loadCourseAliases conn
 
     LBS.putStr "var db = "
-    LBS.putStr $ exportData ms cs_crs cqs
+    LBS.putStr $ exportData ms cs_crs cqs cas

@@ -18,6 +18,9 @@ import CeqRobot.Model
 import CeqRobot.Scraper
 import CeqRobot.Util
 
+fromYear = 2010
+toYear = 2017
+
 run :: IO ()
 run = do
     conn <- getConn
@@ -38,19 +41,23 @@ initQueueIfNeeded conn = do
     js <- peekQueueScrape conn
 
     when (js == Nothing) $ do
-        let url = genLotUrl
-        (cs, ms) <- scrapeLot url
-        logScrape "course" url "ok"
+        forM_ [fromYear..toYear] $ \y -> do
+            when (y /= toYear) $ do
+                deleteCourseRelations conn
 
-        forM_ ms $ \m -> do
-            insertMasters conn m
-            print m
+            let url = genLotUrl y
+            (cs, ms) <- scrapeLot url
+            logScrape "course" url "ok"
 
-        forM_ cs $ \(c, r) -> do
-            insertCourse conn c
-            insertCourseRelation conn r
-            queueScrape conn "ceq" (courseCode c)
-            print (c, r)
+            forM_ ms $ \m -> do
+                insertMasters conn m
+                print m
+
+            forM_ cs $ \(c, r) -> do
+                insertCourse conn c
+                insertCourseRelation conn r
+                queueScrape conn "ceq" (courseCode c)
+                print (c, r)
 
 performScrapeCeq conn code = do
     res <- forM periodPerms $ \p -> do
@@ -76,10 +83,8 @@ tryPerformScrapeCeq = try . scrapeCeq
 logScrape :: Text -> Text -> Text -> IO ()
 logScrape t url stat = TIO.putStrLn $ "[{}] {} -> {}" `format` (t, url, stat)
 
-currentYear = 2017
-
 periodPerms = do
-    y <- reverse [currentYear - 5..currentYear]
+    y <- reverse [fromYear..toYear]
     s <- [HT, VT]
     p <- [1, 2]
-    return $ Period y s p
+    return $ Period (fromIntegral y) s (fromIntegral p)

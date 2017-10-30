@@ -89,3 +89,4 @@ create table masters
     , updated timestamptz not null default now()
     )
 ;
+

@@ -16,6 +16,8 @@ import Data.Text (Text)
 
 import CeqRobot.Model
 
+import CeqRobot.Database
+
 data CourseInfo = CourseInfo
     { ciCourse :: Course
     , ciRelation :: CourseRelation
@@ -27,14 +29,16 @@ data Database = Database
     , dbCourses :: [CourseInfo]
     , dbMasterCourseMap :: Map Text [Text]
     , dbCourseCeqMap :: Map Text [Ceq]
+    , dbCourseAliasMap :: Map Text [Text]
     }
     deriving (Show)
 
 instance ToJSON Database where
-    toJSON (Database ms cs mcm ccm) =
+    toJSON (Database ms cs mcm ccm cam) =
         object [ "masters" .= map masters ms
                , "courses" .= object (map course cs)
                , "ceqs" .= object (map ceqs cs)
+               , "aliases" .= cam
                ]
         where masters m =
                   object [ "code" .= mastersCode m
@@ -63,7 +67,7 @@ instance ToJSON CourseInfo where
 
 instance ToJSON Ceq where
     toJSON c =
-        object [ "period" .= ceqPeriod c
+        object [ "ceqPeriod" .= ceqPeriod c
                , "url" .= ceqUrl c
                , "registered" .= ceqRegistered c
                , "passed" .= ceqPassed c
@@ -98,20 +102,25 @@ instance ToJSON Period where
 instance ToJSON Semester where
     toJSON = jsonShow
 
-exportData :: [Masters] -> [(Course, CourseRelation)] -> [Ceq] -> ByteString
-exportData ms cs_crs cqs = encode $ buildDatabase ms cs_crs cqs
+exportData :: [Masters] -> [(Course, CourseRelation)] -> [Ceq] -> [(Text, Text)] -> ByteString
+exportData ms cs_crs cqs cas = encode $ buildDatabase ms cs_crs cqs cas
 
-buildDatabase ms cs_crs cqs =
+buildDatabase ms cs_crs cqs cas =
     Database { dbMasters = ms
              , dbCourses = map (uncurry CourseInfo) cs_crs
              , dbMasterCourseMap = mcm
              , dbCourseCeqMap = ccm
+             , dbCourseAliasMap = cam
              }
         where mcm = foldr f M.empty cs_crs
               f (c, r) = M.insertWith (++) (courseRelMasters r) [courseCode c]
 
               ccm = foldr g M.empty cqs
               g c = M.insertWith (++) (ceqCourseCode c) [c]
+
+              cam = foldr h M.empty cas
+              h (c1, c2) = M.insertWith (++) c1 [c2] .
+                           M.insertWith (++) c2 [c1]
 
 jsonShow :: Show a => a -> Value
 jsonShow = toJSON . T.toLower . T.pack . show
