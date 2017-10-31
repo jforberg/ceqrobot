@@ -12,7 +12,7 @@ export default class Main extends React.Component {
   render () {
     return (
       <div>
-        <h1>Ceqrobot</h1>
+        <h1>CEQROBOT</h1>
         <CourseTable />
       </div>
     )

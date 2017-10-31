@@ -1,0 +1,33 @@
+* {
+  font-family: Inconsolata;
+}
+
+body {
+  background: #fffff4;
+  padding: 0;
+  margin: 0;
+}
+
+h1 {
+  font-size: 18pt;
+  background: #eedddd;
+  margin: 8px 0;
+  padding: 2px 16px;
+}
+
+:link, :visited {
+  color: inherit;
+}
+
+table.course-table {
+  margin: 4px 12px;
+}
+
+table.course-table tbody tr:nth-child(odd) {
+  background: #eeeee0;
+}
+
+table.course-table td, table.course-table th {
+  padding-left: 4px;
+  padding-right: 4px;
+}

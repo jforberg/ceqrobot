@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module CeqRobot.Export
-( exportData
+( PreDatabase(..)
+, buildDatabase
+, exportData
 )
 where
 
@@ -9,55 +11,55 @@ import Data.Aeson
 import Data.ByteString.Lazy (ByteString)
 import Data.Function
 import Data.List
-import qualified Data.Map as M
-import Data.Map (Map)
+import qualified Data.Map.Strict as M
+import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import Data.Text (Text)
 
 import CeqRobot.Model
 
-import CeqRobot.Database
+import CeqRobot.Database -- DEBUG
 
-data CourseInfo = CourseInfo
-    { ciCourse :: Course
-    , ciRelation :: CourseRelation
+data PreDatabase = PreDatabase
+    { pdbCourses :: [Course]
+    , pdbCourseRelations :: [CourseRelation]
+    , pdbMasters :: [Masters]
+    , pdbCeqs :: [Ceq]
+    , pdbAliases :: [(Text, Text)]
     }
     deriving (Show)
 
 data Database = Database
-    { dbMasters :: [Masters]
-    , dbCourses :: [CourseInfo]
-    , dbMasterCourseMap :: Map Text [Text]
+    { dbProgrammeMap :: Map Text [CourseRelation]
+      -- programme -> masters (or empty str) -> course rels
+    , dbMastersMap :: Map Text (Map Text [CourseRelation])
+    , dbCourseMap :: Map Text Course
     , dbCourseCeqMap :: Map Text [Ceq]
     , dbCourseAliasMap :: Map Text [Text]
     }
     deriving (Show)
 
 instance ToJSON Database where
-    toJSON (Database ms cs mcm ccm cam) =
-        object [ "masters" .= map masters ms
-               , "courses" .= object (map course cs)
-               , "ceqs" .= object (map ceqs cs)
-               , "aliases" .= cam
+    toJSON (Database pm mm cm qm am) =
+        object [ "programmes" .= pm
+               , "programmes_masters" .= mm
+               , "courses" .= cm
+               , "ceqs" .= qm
+               , "aliases" .= am
                ]
-        where masters m =
-                  object [ "code" .= mastersCode m
-                         , "name" .= mastersName m
-                         , "courses" .= M.findWithDefault [] (mastersCode m) mcm
-                         ]
 
-              course ci@(CourseInfo c r) = (courseCode c, toJSON ci)
-
-              ceqs (CourseInfo c r) =
-                  ( courseCode c
-                  , toJSON . sortBy (compare `on` ceqPeriod) $ (M.findWithDefault [] (courseCode c) ccm)
-                  )
-
-instance ToJSON CourseInfo where
-    toJSON (CourseInfo c r) =
-        object [ "credits" .= courseCredits c
+instance ToJSON Course where
+    toJSON c =
+        object [ "code" .= courseCode c
+               , "credits" .= courseCredits c
                , "level" .= courseLevel c
                , "name" .= courseName c
+               ]
+
+instance ToJSON CourseRelation where
+    toJSON r =
+        object [ "code" .= courseRelCode r
+               , "programme" .= courseRelProgramme r
                , "type" .= courseRelType r
                , "masters" .= courseRelMasters r
                , "comment" .= courseRelComment r
@@ -66,18 +68,19 @@ instance ToJSON CourseInfo where
                ]
 
 instance ToJSON Ceq where
-    toJSON c =
-        object [ "ceqPeriod" .= ceqPeriod c
-               , "url" .= ceqUrl c
-               , "registered" .= ceqRegistered c
-               , "passed" .= ceqPassed c
-               , "responded" .= ceqResponded c
-               , "quality" .= ceqQuality c
-               , "goals" .= ceqGoals c
-               , "understanding" .= ceqUnderstanding c
-               , "workload" .= ceqWorkload c
-               , "relevance" .= ceqRelevance c
-               , "satisfaction" .= ceqSatisfaction c
+    toJSON q =
+        object [ "code" .= ceqCourseCode q
+               , "ceqPeriod" .= ceqPeriod q
+               , "url" .= ceqUrl q
+               , "registered" .= ceqRegistered q
+               , "passed" .= ceqPassed q
+               , "responded" .= ceqResponded q
+               , "quality" .= ceqQuality q
+               , "goals" .= ceqGoals q
+               , "understanding" .= ceqUnderstanding q
+               , "workload" .= ceqWorkload q
+               , "relevance" .= ceqRelevance q
+               , "satisfaction" .= ceqSatisfaction q
                ]
 
 instance ToJSON CourseLevel where
@@ -86,41 +89,43 @@ instance ToJSON CourseLevel where
 instance ToJSON CourseType where
     toJSON = jsonShow
 
+instance ToJSON Semester where
+    toJSON = jsonShow
+
 instance ToJSON CoursePeriod where
-    toJSON Periodical =
-        object [ "periodical" .= True
-               , "lp" .= [False, False, False, False]
-               ]
     toJSON (Lp lp1 lp2 lp3 lp4) =
         object [ "periodical" .= False
                , "lp" .= [lp1, lp2, lp3, lp4]
+               ]
+    toJSON Periodical =
+        object [ "periodical" .= True
+               , "lp" .= [False, False, False, False]
                ]
 
 instance ToJSON Period where
     toJSON (Period y s p) = toJSON [toJSON y, toJSON s, toJSON p]
 
-instance ToJSON Semester where
-    toJSON = jsonShow
+exportData :: PreDatabase -> ByteString
+exportData = encode . buildDatabase
 
-exportData :: [Masters] -> [(Course, CourseRelation)] -> [Ceq] -> [(Text, Text)] -> ByteString
-exportData ms cs_crs cqs cas = encode $ buildDatabase ms cs_crs cqs cas
-
-buildDatabase ms cs_crs cqs cas =
-    Database { dbMasters = ms
-             , dbCourses = map (uncurry CourseInfo) cs_crs
-             , dbMasterCourseMap = mcm
-             , dbCourseCeqMap = ccm
-             , dbCourseAliasMap = cam
+buildDatabase :: PreDatabase -> Database
+buildDatabase (PreDatabase cs rs ms qs as) =
+    Database { dbProgrammeMap = pmap
+             , dbMastersMap = mmap
+             , dbCourseMap = cmap
+             , dbCourseCeqMap = qmap
+             , dbCourseAliasMap = amap
              }
-        where mcm = foldr f M.empty cs_crs
-              f (c, r) = M.insertWith (++) (courseRelMasters r) [courseCode c]
+        where mmap = M.map f pmap
+              f rs' = M.fromListWith (++) [(courseRelMasters r, [r]) | r <- rs']
 
-              ccm = foldr g M.empty cqs
-              g c = M.insertWith (++) (ceqCourseCode c) [c]
+              pmap = M.fromListWith (++) [(courseRelProgramme r, [r]) | r <- rs]
 
-              cam = foldr h M.empty cas
-              h (c1, c2) = M.insertWith (++) c1 [c2] .
-                           M.insertWith (++) c2 [c1]
+              cmap = M.fromList [(courseCode c, c) | c <- cs]
+
+              qmap = M.fromListWith (++) [(ceqCourseCode q, [q]) | q <- qs]
+
+              amap = M.fromListWith (++) . concat $ [ [(a1, [a2]), (a2, [a1])] | (a1, a2) <- as]
 
 jsonShow :: Show a => a -> Value
 jsonShow = toJSON . T.toLower . T.pack . show

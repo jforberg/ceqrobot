@@ -18,22 +18,13 @@ data CourseLevel = LevelG1 | LevelG2 | LevelA
     deriving (Eq, Show, Read)
 
 data CoursePeriod = Lp Bool Bool Bool Bool | Periodical
-    deriving (Eq)
-
-instance Show CoursePeriod where
-    show Periodical = "Periodical"
-    show (Lp lp1 lp2 lp3 lp4) = "Lp" ++ f 1 lp1 ++ f 2 lp2 ++ f 3 lp3 ++ f 4 lp4
-        where f _ False = ""
-              f n True = show n
+    deriving (Eq, Show)
 
 data Semester = VT | HT
     deriving (Eq, Ord, Show, Read)
 
 data Period = Period Int32 Semester Int32
-    deriving (Eq)
-
-instance Show Period where
-    show (Period y s p) = show y ++ " " ++ show s ++ show p
+    deriving (Eq, Show)
 
 instance Ord Period where
     (Period y1 s1 p1) `compare` (Period y2 s2 p2) =

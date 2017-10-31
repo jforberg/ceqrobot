@@ -13,10 +13,11 @@ import CeqRobot.Export
 main = do
     conn <- getConn
 
+    cs <- loadCourses conn
+    rs <- loadCourseRelations conn
     ms <- loadMasters conn
-    cs_crs <- loadCoursesAndRelations conn
-    cqs <- loadCeqs conn
-    cas <- loadCourseAliases conn
+    qs <- loadCeqs conn
+    as <- loadCourseAliases conn
 
     LBS.putStr "var db = "
-    LBS.putStr $ exportData ms cs_crs cqs cas
+    LBS.putStr . exportData $ (PreDatabase cs rs ms qs as)

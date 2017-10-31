@@ -6,7 +6,8 @@
 module CeqRobot.Database
 ( getConn
 , insertCourse
-, loadCoursesAndRelations
+, loadCourses
+, loadCourseRelations
 , insertCourseRelation
 , deleteCourseRelations
 , insertMasters
@@ -107,13 +108,25 @@ deleteCourseRelations conn = void $ pgExecute conn [pgSQL|
         delete from course_relation
     |]
 
-loadCoursesAndRelations :: PGConnection -> IO [(Course, CourseRelation)]
-loadCoursesAndRelations conn = do
-    rs <- pgQuery conn [pgSQL|
+loadCourses :: PGConnection -> IO [Course]
+loadCourses conn =
+    map f <$> pgQuery conn [pgSQL|
         select c.code
              , c.credits
              , c.level
              , c.name
+        from course c
+    |]
+    where f (co, cr, le, na) =
+              Course { courseCode = co
+                     , courseCredits = cr
+                     , courseLevel = read le
+                     , courseName = na
+                     }
+
+loadCourseRelations :: PGConnection -> IO [CourseRelation]
+loadCourseRelations conn = map f <$> pgQuery conn [pgSQL|
+        select r.code
              , r.programme
              , r.type
              , r.masters
@@ -125,26 +138,17 @@ loadCoursesAndRelations conn = do
              , r.lp3
              , r.lp4
         from course_relation r
-        join course c on r.code = r.code and lower(r.programme) = 'f'
     |]
-
-    return $ map f rs
-        where f (co, cr, le, na, pr, ty, ma, cm, ye, pe, l1, l2, l3, l4) =
-                  ( Course { courseCode = co
-                           , courseCredits = cr
-                           , courseLevel = read le
-                           , courseName = na
-                           }
-                  , CourseRelation { courseRelCode = co
-                                   , courseRelProgramme = pr
-                                   , courseRelType = read ty
-                                   , courseRelMasters = ma
-                                   , courseRelComment = cm
-                                   , courseRelYear = ye
-                                   , courseRelPeriod = if pe then Periodical
-                                                             else Lp l1 l2 l3 l4
-                                   }
-                  )
+    where f (co, pr, ty, ma, cm, ye, pe, l1, l2, l3, l4) =
+              CourseRelation { courseRelCode = co
+                             , courseRelProgramme = pr
+                             , courseRelType = read ty
+                             , courseRelMasters = ma
+                             , courseRelComment = cm
+                             , courseRelYear = ye
+                             , courseRelPeriod = if pe then Periodical
+                                                       else Lp l1 l2 l3 l4
+                             }
 
 insertMasters :: PGConnection -> Masters -> IO ()
 insertMasters conn mast =

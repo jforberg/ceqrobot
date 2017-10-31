@@ -7,7 +7,11 @@ export default class CourseTable extends React.Component {
   constructor(props) {
     super(props)
 
-    let cs = Object.keys(db.courses).map(cc => dataForCourse(cc))
+    let uniqueCourses = {}
+
+    db.programmes.F.forEach(r => { uniqueCourses[r.code] = r })
+
+    let cs = Object.values(uniqueCourses).map(dataForCourse)
 
     this.state = { courses: cs}
     this.handleSort = this.handleSort.bind(this)
@@ -43,9 +47,11 @@ export default class CourseTable extends React.Component {
     let sortFunc
 
     if (k === 'ceqPeriod')
-      sortFunc = sorter(x => x.ceq.ceqPeriod, comparePeriod, order)
+      sortFunc = sorter(x => x.ceqs[0].ceqPeriod, comparePeriod, order)
+    else if (k === 'period')
+      sortFunc = sorter(x => x.period.lp, compareDefault, order)
     else if (ceqProps.includes(k))
-      sortFunc = sorter(x => x.ceq[k], compareDefault, order)
+      sortFunc = sorter(x => x.ceqs[0][k], compareDefault, order)
     else
       sortFunc = sorter(x => x[k], compareDefault, order)
 
@@ -56,7 +62,7 @@ export default class CourseTable extends React.Component {
 
   render() {
     return (
-      <table>
+      <table className='course-table'>
         <CourseHeader sortCallback={this.handleSort} />
         <tbody>
           {this.state.courses.map(c => {
@@ -68,11 +74,11 @@ export default class CourseTable extends React.Component {
   }
 }
 
-function dataForCourse(code) {
-  let qs = db.ceqs[code]
+function dataForCourse(rel) {
+  let qs = db.ceqs[rel.code]
 
   if (!qs || !qs.length) {
-    let as = db.aliases[code] || []
+    let as = db.aliases[rel.code] || []
 
     qs = []
 
@@ -88,10 +94,11 @@ function dataForCourse(code) {
 
   qs.sort((a, b) => -comparePeriod(a.ceqPeriod, b.ceqPeriod))
 
-  let ret = Object.assign({}, db.courses[code], { code: code })
-  ret.ceq = qs[0] || {}
+  if (qs.length === 0)
+    qs = [{}]
 
-  return ret
+  return Object.assign(
+    {}, db.courses[rel.code], rel, { ceqs: qs })
 }
 
 function sorter(accessor, comparator, order) {
@@ -129,6 +136,15 @@ function checkNulls(a, b) {
     return null
 }
 
+function compareDefault(a, b) {
+  if (a < b)
+    return -1
+  else if (a > b)
+    return 1
+  else
+    return 0
+}
+
 function comparePeriod(a, b) {
   if (a[0] !== b[0])
     return a[0] > b[0]? 1 : -1
@@ -140,12 +156,18 @@ function comparePeriod(a, b) {
     return 0
 }
 
-function compareDefault(a, b) {
-  if (a < b)
-    return -1
-  else if (a > b)
-    return 1
-  else
-    return 0
+function compareArray(a, b) {
+  for (let i = 0; ; i++) {
+    let av = a[i]
+      , bv = b[i]
+      , nullStat = checkNulls(av, bv)
+
+    if (nullStat !== null)
+      return nullStat
+    else if (av > bv)
+      return 1
+    else if (bv < av)
+      return -1
+  }
 }
 

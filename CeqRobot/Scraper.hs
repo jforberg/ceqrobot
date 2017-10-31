@@ -65,10 +65,10 @@ scrapeMasters = scrape masters
               mname <- (T.drop 3 . snd . T.breakOn " - ") <$> text ("h3" @: [])
               case mcode of
                   "" -> mzero
-                  _ -> return $ Masters "f" mcode mname
+                  _ -> return $ Masters "F" mcode mname
 
 readMasters tid | T.take 2 tid == "ak"    = ""
-                | otherwise               = tid
+                | otherwise               = T.toUpper tid
 
 scrapeCourses = scrape table
     where table = do
@@ -81,7 +81,7 @@ scrapeCourses = scrape table
           course tid = do
               cls <- attr "class" ("tr" @: [])
               tds <- texts ("td" @: [])
-              case courseFromRow "F" cls tid tds of
+              case courseFromRow "f" cls tid tds of
                   Just c -> return c
                   Nothing -> mzero
 

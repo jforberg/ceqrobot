@@ -42,6 +42,10 @@ export default class CourseHeader extends React.Component {
             Namn
             {this.sortMarker('name')}
           </th>
+          <th colSpan={4} onClick={sortByKey('period')}>
+            LP
+            {this.sortMarker('period')}
+          </th>
           <th onClick={sortByKey('ceqPeriod')}>
             <abbr title='Senaste CEQ-period'>CEQ</abbr>
             {this.sortMarker('ceqPeriod')}
