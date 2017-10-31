@@ -13,6 +13,7 @@ export default class Main extends React.Component {
     return (
       <div>
         <h1>CEQROBOT</h1>
+        <small className='tagline'>Beslutsstöd för teknologer</small>
         <CourseTable />
       </div>
     )

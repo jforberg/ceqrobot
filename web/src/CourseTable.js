@@ -1,5 +1,6 @@
 import React from 'react'
 
+import TableControls from './TableControls'
 import CourseRow from './CourseRow'
 import CourseHeader from './CourseHeader'
 
@@ -7,14 +8,16 @@ export default class CourseTable extends React.Component {
   constructor(props) {
     super(props)
 
-    let uniqueCourses = {}
+    this.state = { courses: [] } // To be filled by cb from TableControls
 
-    db.programmes.F.forEach(r => { uniqueCourses[r.code] = r })
-
-    let cs = Object.values(uniqueCourses).map(dataForCourse)
-
-    this.state = { courses: cs}
+    this.handleControls = this.handleControls.bind(this)
     this.handleSort = this.handleSort.bind(this)
+  }
+
+  handleControls(rels) {
+    let courses = rels.map(r => dataForCourse(r))
+
+    this.setState({ courses: courses })
   }
 
   handleSort(k, e) {
@@ -39,7 +42,7 @@ export default class CourseTable extends React.Component {
                      ]
 
     let order = this.previousSortKey === k? -1 : 1
-    this.previousSortKey = k
+    this.previousSortKey = order === 1? k : null
 
     if (revProps.includes(k))
       order = -order
@@ -62,14 +65,19 @@ export default class CourseTable extends React.Component {
 
   render() {
     return (
-      <table className='course-table'>
-        <CourseHeader sortCallback={this.handleSort} />
-        <tbody>
-          {this.state.courses.map(c => {
-            return <CourseRow key={c.code} data={c} />
-          })}
-        </tbody>
-      </table>
+      <div>
+        <TableControls courseRelsCallback={this.handleControls} />
+        <div className='tableContainer'>
+          <table className='course-table'>
+            <CourseHeader sortCallback={this.handleSort} />
+            <tbody>
+              {this.state.courses.map((c, i) => {
+                return <CourseRow key={c.code} data={c} index={i} />
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     )
   }
 }

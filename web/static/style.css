@@ -13,21 +13,88 @@ h1 {
   background: #eedddd;
   margin: 8px 0;
   padding: 2px 16px;
+  clear: none;
+}
+
+small.tagline {
+  position: absolute;
+  top: 16px;
+  right: 12px;
+}
+
+.tableControls {
+  padding: 2px 16px;
+}
+
+.tableControlRow {
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.tableControlRow b {
+  margin-right: 8px;
+}
+
+.tableControlRow label {
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.tableControlRow label.selected {
+  font-weight: bold;
+  border-radius: 2px;
+  background: #ddddee;
+}
+
+.tableControlRow input {
+  display: none;
+}
+
+.tableControlDisplay {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 :link, :visited {
   color: inherit;
 }
 
-table.course-table {
+.tableContainer {
   margin: 4px 12px;
 }
 
-table.course-table tbody tr:nth-child(odd) {
+table.course-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+table.course-table tbody tr.odd {
   background: #eeeee0;
 }
 
+table.course-table tbody tr.even {
+  background: none;
+}
+
 table.course-table td, table.course-table th {
-  padding-left: 4px;
-  padding-right: 4px;
+  padding: 2px 4px;
+}
+
+table.course-table td {
+  border-left: 1px solid #fffff4;
+  border-right: 1px solid #fffff4;
+}
+
+table.course-table th {
+  border-bottom: 1px solid black;
+}
+
+a.sortControl {
+  cursor: pointer;
+}
+
+span.sortindicator {
+  font-size: 80%;
+  position: absolute;
 }

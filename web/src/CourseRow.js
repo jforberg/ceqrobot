@@ -1,8 +1,6 @@
 import React from 'react'
 import 'sprintf-js'
 
-//import CeqRowFragment from './CeqRowFragment'
-
 export default class CourseRow extends React.Component {
   constructor(props) {
     super(props)
@@ -17,8 +15,11 @@ export default class CourseRow extends React.Component {
   }
 
   render() {
-    let firstRow = (
-          <tr key={0}>
+    const courseFragmentSpan = 10
+
+    let rowParity = this.props.index % 2 === 0? 'even' : 'odd'
+      , firstRow = (
+          <tr key={0} className={rowParity}>
             <CourseRowFragment data={this.props.data}
                                nameClicked={this.handleExpand} />
             <CeqRowFragment data={this.props.data.ceqs[0]} />
@@ -29,16 +30,18 @@ export default class CourseRow extends React.Component {
     if (this.state.expanded) {
       if (ceqCount < 2)
         return [ firstRow
-               , <tr key={1}>
-                   <td colSpan={8} style={{verticalAlign: 'top'}}>
+               , <tr key={1} className={rowParity}>
+                   <td colSpan={courseFragmentSpan}
+                       style={{verticalAlign: 'top'}}>
                      Expanded
                    </td>
                  </tr>
                ]
       else
         return [ firstRow
-               , <tr key={1}>
-                   <td colSpan={8} rowSpan={ceqCount - 1}
+               , <tr key={1} className={rowParity}>
+                   <td colSpan={courseFragmentSpan}
+                       rowSpan={ceqCount - 1}
                        style={{verticalAlign: 'top'}}>
                      Expanded
                    </td>
@@ -46,7 +49,7 @@ export default class CourseRow extends React.Component {
                  </tr>
                ].concat(
                  this.props.data.ceqs.slice(2).map((q, i) => (
-                   <tr key={i + 2}>
+                   <tr key={i + 2} className={rowParity}>
                      <CeqRowFragment data={q} />
                    </tr>
                  ))
@@ -59,12 +62,53 @@ export default class CourseRow extends React.Component {
 
 class CourseRowFragment extends React.Component {
   render() {
+    function type(t) {
+      switch (t) {
+      case 'obligatory':
+        return 'O'
+      case 'altobligatory':
+        return 'A'
+      case 'elective':
+        return 'V'
+      default:
+        return null
+      }
+    }
+
     function credits(c) {
       return ('' + c).replace('.', ',')
     }
 
     function level(lvl) {
       return lvl.replace('level', '')[0].toUpperCase()
+    }
+
+    function name(n) {
+      const limit = 65
+          , trailer = ' ...'
+
+      if (n.length <= limit)
+        return n
+
+      let over = n.length - limit + trailer.length
+        , ws = n.split(' ')
+
+      function uselessWord(w) {
+        return [ 'och', 'för' ].includes(w)
+      }
+
+      while (uselessWord(ws[ws.length - 1]) || over > 0) {
+        let w = ws.pop()
+
+        over -= w.length + 1
+      }
+
+      let str = ws.join(' ')
+
+      if (str[str.length - 1] === ',')
+        str = str.slice(0, str.length - 1)
+
+      return str + trailer
     }
 
     function lp(p, i) {
@@ -82,25 +126,34 @@ class CourseRowFragment extends React.Component {
       [ <td key={0}>
           {c.code}
         </td>
-      , <td key={1} style={{textAlign: 'right'}}>
-          {credits(c.credits)}
+      , <td key={1}>
+          {c.year}
         </td>
       , <td key={2}>
-          {level(c.level)}
+          {type(c.type)}
         </td>
-      , <td key={3} onClick={this.props.nameClicked}>
-          {c.name}
+      , <td key={3}
+            style={{textAlign: 'right'}}>
+          {credits(c.credits)}
         </td>
       , <td key={4}>
-          {lp(c.period, 0)}
+          {level(c.level)}
         </td>
-      , <td key={5}>
-          {lp(c.period, 1)}
+      , <td key={5}
+            onClick={this.props.nameClicked}
+            className='coursename'>
+          {name(c.name)}
         </td>
       , <td key={6}>
-          {lp(c.period, 2)}
+          {lp(c.period, 0)}
         </td>
       , <td key={7}>
+          {lp(c.period, 1)}
+        </td>
+      , <td key={8}>
+          {lp(c.period, 2)}
+        </td>
+      , <td key={9}>
           {lp(c.period, 3)}
         </td>
       ]

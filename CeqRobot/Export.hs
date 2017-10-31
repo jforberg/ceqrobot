@@ -30,22 +30,21 @@ data PreDatabase = PreDatabase
     deriving (Show)
 
 data Database = Database
-    { dbProgrammeMap :: Map Text [CourseRelation]
-      -- programme -> masters (or empty str) -> course rels
-    , dbMastersMap :: Map Text (Map Text [CourseRelation])
+    { dbProgMastersCourseRelMap :: Map Text (Map Text [CourseRelation])
     , dbCourseMap :: Map Text Course
     , dbCourseCeqMap :: Map Text [Ceq]
     , dbCourseAliasMap :: Map Text [Text]
+    , dbProgMastersMap :: Map Text (Map Text Masters)
     }
     deriving (Show)
 
 instance ToJSON Database where
-    toJSON (Database pm mm cm qm am) =
+    toJSON (Database pm cm qm am mm) =
         object [ "programmes" .= pm
-               , "programmes_masters" .= mm
                , "courses" .= cm
                , "ceqs" .= qm
                , "aliases" .= am
+               , "masters" .= mm
                ]
 
 instance ToJSON Course where
@@ -83,6 +82,13 @@ instance ToJSON Ceq where
                , "satisfaction" .= ceqSatisfaction q
                ]
 
+instance ToJSON Masters where
+    toJSON m =
+        object [ "code" .= mastersCode m
+               , "programme" .= mastersProgramme m
+               , "name" .= mastersName m
+               ]
+
 instance ToJSON CourseLevel where
     toJSON = jsonShow
 
@@ -109,23 +115,22 @@ exportData :: PreDatabase -> ByteString
 exportData = encode . buildDatabase
 
 buildDatabase :: PreDatabase -> Database
-buildDatabase (PreDatabase cs rs ms qs as) =
-    Database { dbProgrammeMap = pmap
-             , dbMastersMap = mmap
-             , dbCourseMap = cmap
-             , dbCourseCeqMap = qmap
-             , dbCourseAliasMap = amap
-             }
-        where mmap = M.map f pmap
-              f rs' = M.fromListWith (++) [(courseRelMasters r, [r]) | r <- rs']
+buildDatabase (PreDatabase cs rs ms qs as) = Database pmap cmap qmap amap mmap
+    where pmap = M.map f pmap'
+          f rs' = M.fromListWith (++) [(courseRelMasters r, [r]) | r <- rs']
 
-              pmap = M.fromListWith (++) [(courseRelProgramme r, [r]) | r <- rs]
+          pmap' = M.fromListWith (++) [(courseRelProgramme r, [r]) | r <- rs]
 
-              cmap = M.fromList [(courseCode c, c) | c <- cs]
+          cmap = M.fromList [(courseCode c, c) | c <- cs]
 
-              qmap = M.fromListWith (++) [(ceqCourseCode q, [q]) | q <- qs]
+          qmap = M.fromListWith (++) [(ceqCourseCode q, [q]) | q <- qs]
 
-              amap = M.fromListWith (++) . concat $ [ [(a1, [a2]), (a2, [a1])] | (a1, a2) <- as]
+          amap = M.fromListWith (++) . concat $ [ [(a1, [a2]), (a2, [a1])] | (a1, a2) <- as]
+
+          mmap = M.map g mmap'
+          g ms' = M.fromList [(mastersCode m, m) | m <- ms']
+
+          mmap' = M.fromListWith (++) [(mastersProgramme m, [m]) | m <- ms]
 
 jsonShow :: Show a => a -> Value
 jsonShow = toJSON . T.toLower . T.pack . show

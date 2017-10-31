@@ -13,69 +13,104 @@ export default class CourseHeader extends React.Component {
     this.sortDir = dir
   }
 
-  sortMarker(key) {
-    if (this.sortKey !== key)
-      return ''
-
-    let icon = this.sortDir === 1? '▲' : '▼'
-
-    return icon
-  }
-
   render() {
-    let sortByKey = k => e => this.handleSort(k, e)
+    let sortOrder = (k) => this.sortKey === k? this.sortDir : null
 
     return (
       <thead>
         <tr>
-          <th style={{textAlign: 'left'}}
-              onClick={sortByKey('code')}>
-            KK
-            {this.sortMarker('code')}
-          </th>
-          <th colSpan={2}
-              onClick={sortByKey('credits')}>
-            HP
-            {this.sortMarker('credits')}
-          </th>
-          <th onClick={sortByKey('name')}>
-            Namn
-            {this.sortMarker('name')}
-          </th>
-          <th colSpan={4} onClick={sortByKey('period')}>
-            LP
-            {this.sortMarker('period')}
-          </th>
-          <th onClick={sortByKey('ceqPeriod')}>
-            <abbr title='Senaste CEQ-period'>CEQ</abbr>
-            {this.sortMarker('ceqPeriod')}
-          </th>
-          <th onClick={sortByKey('satisfaction')}>
-            <abbr title='"Överlag är jag nöjd med den här kursen"'>Övl</abbr>
-            {this.sortMarker('satisfaction')}
-          </th>
-          <th onClick={sortByKey('relevance')}>
-            <abbr title='"Kursen känns angelägen för min utbildning"'>Ang</abbr>
-            {this.sortMarker('relevance')}
-          </th>
-          <th onClick={sortByKey('quality')}>
-            <abbr title='"God undervisning"'>Udv</abbr>
-            {this.sortMarker('quality')}
-          </th>
-          <th onClick={sortByKey('workload')}>
-            <abbr title='"Lämplig arbetsbelastning"'>Arb</abbr>
-            {this.sortMarker('workload')}
-          </th>
-          <th onClick={sortByKey('registered')}>
-            <abbr title='Antal kursregistrerade studenter'>Reg</abbr>
-            {this.sortMarker('registered')}
-          </th>
-          <th onClick={sortByKey('percentPassed')}>
-            <abbr title='Andel godkända studenter'>G%</abbr>
-            {this.sortMarker('percentPassed')}
-          </th>
+          <SortHead cb={this.handleSort}
+                    k='code'
+                    n='KK'
+                    s={sortOrder('code')} />
+          <SortHead cb={this.handleSort}
+                    k='year'
+                    n='Å'
+                    t='Ingår i årskurs'
+                    colSpan={1}
+                    s={sortOrder('year')} />
+          <SortHead cb={this.handleSort}
+                    k='type'
+                    n='T'
+                    t='O = obligatorisk, A = alternativobligatorisk, V = valfri'
+                    colSpan={1}
+                    s={sortOrder('type')} />
+          <SortHead cb={this.handleSort}
+                    k='credits'
+                    n='HP'
+                    colSpan={1}
+                    s={sortOrder('credits')} />
+          <SortHead cb={this.handleSort}
+                    k='level'
+                    n='N'
+                    t='G = grundnivå, A = avancerad nivå'
+                    s={sortOrder('level')} />
+          <SortHead cb={this.handleSort}
+                    k='name'
+                    n='Namn'
+                    s={sortOrder('name')} />
+          <SortHead cb={this.handleSort}
+                    k='period'
+                    n='LP'
+                    s={sortOrder('period')}
+                    colSpan={4} />
+          <SortHead cb={this.handleSort}
+                    k='ceqPeriod'
+                    n='CEQ'
+                    s={sortOrder('ceqPeriod')}
+                    t='Senaste CEQ-period' />
+          <SortHead cb={this.handleSort}
+                    k='satisfaction'
+                    n='Övl'
+                    s={sortOrder('satisfaction')}
+                    t='"Överlag är jag nöjd med den här kursen"' />
+          <SortHead cb={this.handleSort}
+                    k='relevance'
+                    n='Ang'
+                    s={sortOrder('relevance')}
+                    t='"Kursen känns angelägen för min utbildning"' />
+          <SortHead cb={this.handleSort}
+                    k='quality'
+                    n='Udv'
+                    s={sortOrder('quality')}
+                    t='"God undervisning"' />
+          <SortHead cb={this.handleSort}
+                    k='workload'
+                    n='Arb'
+                    s={sortOrder('workload')}
+                    t='"Lämplig arbetsbelastning"' />
+          <SortHead cb={this.handleSort}
+                    k='registered'
+                    n='Reg'
+                    s={sortOrder('registered')}
+                    t='Antal kursregistrerade studenter' />
+          <SortHead cb={this.handleSort}
+                    k='percentPassed'
+                    n='G%'
+                    s={sortOrder('percentPassed')}
+                    t='Andel godkända studenter' />
         </tr>
       </thead>
     )
   }
 }
+
+class SortHead extends React.Component {
+  render() {
+    let sortByKey = e => this.props.cb(this.props.k, e)
+
+    return (
+      <th colSpan={this.props.colSpan}
+          onClick={sortByKey}>
+        <a className='sortControl'>
+          <abbr title={this.props.t}>{this.props.n}</abbr>
+          <span className='sortindicator'>
+            {this.props.s? this.props.s > 0? '▲' : '▼' : ''}
+          </span>
+        </a>
+      </th>
+    )
+  }
+}
+
+
