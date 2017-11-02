@@ -1,5 +1,7 @@
 module CeqRobot.Model
-( CourseLevel(..)
+( ScrapeJob(..)
+, Programme(..)
+, CourseLevel(..)
 , CoursePeriod(..)
 , Semester(..)
 , Period(..)
@@ -13,6 +15,19 @@ where
 
 import Data.Int
 import Data.Text (Text)
+
+data ScrapeJob = ScrapeJob
+    { scrapeType :: Text
+    , scrapeRef :: Text
+    , scrapeMeta :: Maybe Text
+    }
+    deriving (Show)
+
+data Programme = Programme
+    { programmeCode :: Text
+    , programmeName :: Text
+    }
+    deriving (Show)
 
 data CourseLevel = LevelG1 | LevelG2 | LevelA
     deriving (Eq, Show, Read)
@@ -47,7 +62,8 @@ data CourseRelation = CourseRelation
     , courseRelType :: CourseType
     , courseRelMasters :: Text
     , courseRelComment :: Text
-    , courseRelYear :: Int32
+    , courseRelValidYear :: Int32
+    , courseRelProgYear :: Int32
     , courseRelPeriod :: CoursePeriod
     }
     deriving (Show)

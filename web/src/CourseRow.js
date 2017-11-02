@@ -16,6 +16,7 @@ export default class CourseRow extends React.Component {
 
   render() {
     const courseFragmentSpan = 10
+        , ceqFragmentSpan = 7
 
     let rowParity = this.props.index % 2 === 0? 'even' : 'odd'
       , firstRow = (
@@ -31,9 +32,9 @@ export default class CourseRow extends React.Component {
       if (ceqCount < 2)
         return [ firstRow
                , <tr key={1} className={rowParity}>
-                   <td colSpan={courseFragmentSpan}
+                   <td colSpan={courseFragmentSpan + ceqFragmentSpan}
                        style={{verticalAlign: 'top'}}>
-                     Expanded
+                     <CourseInfo data={this.props.data} />
                    </td>
                  </tr>
                ]
@@ -43,7 +44,7 @@ export default class CourseRow extends React.Component {
                    <td colSpan={courseFragmentSpan}
                        rowSpan={ceqCount - 1}
                        style={{verticalAlign: 'top'}}>
-                     Expanded
+                     <CourseInfo data={this.props.data} />
                    </td>
                    <CeqRowFragment data={this.props.data.ceqs[1]} />
                  </tr>
@@ -141,7 +142,7 @@ class CourseRowFragment extends React.Component {
         </td>
       , <td key={5}
             onClick={this.props.nameClicked}
-            className='coursename'>
+            className='courseName'>
           {name(c.name)}
         </td>
       , <td key={6}>
@@ -219,4 +220,15 @@ class CeqRowFragment extends React.Component {
 }
 
 class CourseInfo extends React.Component {
+  render() {
+    let aliasStr = ''
+      , as = this.props.data.aliases
+
+    if (as.length)
+      aliasStr = 'aka. ' + as.join(', ')
+
+    return (
+      <span>{aliasStr}</span>
+    )
+  }
 }

@@ -13,6 +13,7 @@ import CeqRobot.Export
 main = do
     conn <- getConn
 
+    ps <- loadProgrammes conn
     cs <- loadCourses conn
     rs <- loadCourseRelations conn
     ms <- loadMasters conn
@@ -20,4 +21,4 @@ main = do
     as <- loadCourseAliases conn
 
     LBS.putStr "var db = "
-    LBS.putStr . exportData $ (PreDatabase cs rs ms qs as)
+    LBS.putStr . exportData $ (PreDatabase ps cs rs ms qs as)

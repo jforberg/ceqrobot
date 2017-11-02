@@ -21,7 +21,8 @@ import CeqRobot.Model
 import CeqRobot.Database -- DEBUG
 
 data PreDatabase = PreDatabase
-    { pdbCourses :: [Course]
+    { pdbProgrammes :: [Programme]
+    , pdbCourses :: [Course]
     , pdbCourseRelations :: [CourseRelation]
     , pdbMasters :: [Masters]
     , pdbCeqs :: [Ceq]
@@ -30,21 +31,29 @@ data PreDatabase = PreDatabase
     deriving (Show)
 
 data Database = Database
-    { dbProgMastersCourseRelMap :: Map Text (Map Text [CourseRelation])
+    { dbProgMap :: Map Text Programme
     , dbCourseMap :: Map Text Course
     , dbCourseCeqMap :: Map Text [Ceq]
     , dbCourseAliasMap :: Map Text [Text]
     , dbProgMastersMap :: Map Text (Map Text Masters)
+    , dbProgMastersCourseRelMap :: Map Text (Map Text [CourseRelation])
     }
     deriving (Show)
 
 instance ToJSON Database where
-    toJSON (Database pm cm qm am mm) =
+    toJSON (Database pm cm qm am mm lm) =
         object [ "programmes" .= pm
                , "courses" .= cm
                , "ceqs" .= qm
                , "aliases" .= am
                , "masters" .= mm
+               , "lotMap" .= lm
+               ]
+
+instance ToJSON Programme where
+    toJSON p =
+        object [ "code" .= programmeCode p
+               , "name" .= programmeName p
                ]
 
 instance ToJSON Course where
@@ -62,7 +71,7 @@ instance ToJSON CourseRelation where
                , "type" .= courseRelType r
                , "masters" .= courseRelMasters r
                , "comment" .= courseRelComment r
-               , "year" .= courseRelYear r
+               , "year" .= courseRelProgYear r
                , "period" .= courseRelPeriod r
                ]
 
@@ -115,11 +124,8 @@ exportData :: PreDatabase -> ByteString
 exportData = encode . buildDatabase
 
 buildDatabase :: PreDatabase -> Database
-buildDatabase (PreDatabase cs rs ms qs as) = Database pmap cmap qmap amap mmap
-    where pmap = M.map f pmap'
-          f rs' = M.fromListWith (++) [(courseRelMasters r, [r]) | r <- rs']
-
-          pmap' = M.fromListWith (++) [(courseRelProgramme r, [r]) | r <- rs]
+buildDatabase (PreDatabase ps cs rs ms qs as) = Database pmap cmap qmap amap mmap lmap
+    where pmap = M.fromList [(programmeCode p, p) | p <- ps]
 
           cmap = M.fromList [(courseCode c, c) | c <- cs]
 
@@ -131,6 +137,11 @@ buildDatabase (PreDatabase cs rs ms qs as) = Database pmap cmap qmap amap mmap
           g ms' = M.fromList [(mastersCode m, m) | m <- ms']
 
           mmap' = M.fromListWith (++) [(mastersProgramme m, [m]) | m <- ms]
+
+          lmap = M.map f lmap'
+          f rs' = M.fromListWith (++) [(courseRelMasters r, [r]) | r <- rs']
+
+          lmap' = M.fromListWith (++) [(courseRelProgramme r, [r]) | r <- rs]
 
 jsonShow :: Show a => a -> Value
 jsonShow = toJSON . T.toLower . T.pack . show

@@ -1,8 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module CeqRobot.Scraper
-( genLotUrl
+( genRootUrl
+, genLotUrl
 , genCeqUrl
+, guessCeqPeriod
+, scrapeRoot
 , scrapeLot
 , scrapeCeq
 )
@@ -11,6 +14,7 @@ where
 import Control.Monad
 import qualified Data.ByteString.Lazy as LBS
 import Data.Function
+import Data.Int
 import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -28,15 +32,25 @@ import CeqRobot.Model
 import CeqRobot.Database
 import CeqRobot.Util
 
-genLotUrl :: Int -> Text
-genLotUrl y =
-    "https://kurser.lth.se/lot/?lasar={}_{}&sort1=lp&sort2=slut_lp&sort3=namn&prog=F&forenk=t&val=program&soek=t" `format`
-    (y `mod` 100, (y + 1) `mod` 100)
+genLotUrl :: Text -> Int32 -> Text
+genLotUrl p y =
+    "https://kurser.lth.se/lot/?lasar={}_{}&sort1=lp&sort2=slut_lp&sort3=namn&prog={}&forenk=t&val=program&soek=t" `format`
+    (y `mod` 100, (y + 1) `mod` 100, p)
 
 genCeqUrl :: Text -> Period -> Text
 genCeqUrl code (Period year sem p) =
     "http://www.ceq.lth.se/rapporter/{}_{}/LP{}/{}_{}_{}_LP{}_slutrapport.html" `format`
     (year, show sem, p, code, year, show sem, p)
+
+genRootUrl :: Text
+genRootUrl = "https://kurser.lth.se/lot/?val=program"
+
+guessCeqPeriod :: Int32 -> CoursePeriod -> Maybe Period
+guessCeqPeriod year (Lp _ _ _ True) = Just $ Period (year + 1) VT 2
+guessCeqPeriod year (Lp _ _ True _) = Just $ Period (year + 1) VT 1
+guessCeqPeriod year (Lp _ True _ _) = Just $ Period year HT 2
+guessCeqPeriod year (Lp True _ _ _) = Just $ Period year HT 1
+guessCeqPeriod _ _ = Nothing
 
 loadHttp decoder url = decoder . LBS.toStrict <$> simpleHttp (T.unpack url)
 
@@ -45,32 +59,62 @@ loadTagsUtf8 = (parseTags <$>) . loadHttp decodeUtf8
 loadTagsLatin1 = (parseTags <$>) . loadHttp decodeLatin1
 
 --
+-- ROOT: PROGRAMMES, YEARS
+--
+
+scrapeRoot :: Text -> IO ([Int32], [Programme])
+scrapeRoot url = do
+    ts <- loadTagsUtf8 url
+
+    let ys = fromJust $ scrapeYears ts
+        ps = fromJust $ scrapeProgrammes ts
+
+    return (ys, ps)
+
+scrapeYears = scrape years
+    where years = chroot ("select" @: ["name" @= "lasar"]) years'
+
+          years' = catMaybes . map rYear <$> texts ("option" @: [])
+
+          rYear = readMaybe . T.unpack . fst . T.breakOn "/"
+
+scrapeProgrammes = scrape programmes
+    where programmes = chroots ("label" @: []) programme
+
+          programme = do
+              code <- attr "value" ("input" @: ["name" @= "prog"])
+              name <- rName <$> text (AnyTag @: [])
+              return $ Programme (T.toUpper code) name
+
+          rName = T.strip . snd . T.breakOnEnd ":"
+
+--
 -- LOT
 --
 
-scrapeLot :: Text -> IO ([(Course, CourseRelation)], [Masters])
-scrapeLot url = do
+scrapeLot :: Text -> Int32 -> Text -> IO ([(Course, CourseRelation)], [Masters])
+scrapeLot prog year url = do
     ts <- tablesTags <$> loadTagsUtf8 url
 
-    let cs = concat . catMaybes . map scrapeCourses $ ts
-        ms = catMaybes . map scrapeMasters $ ts
+    let cs = concat . catMaybes . map (scrapeCourses prog year) $ ts
+        ms = catMaybes . map (scrapeMasters prog) $ ts
 
     return (cs, ms)
 
 tablesTags ts = partitions (isTagOpenName "h3") ts
 
-scrapeMasters = scrape masters
+scrapeMasters prog = scrape masters
     where masters = do
               mcode <- readMasters <$> attr "id" ("h3" @: [])
               mname <- (T.drop 3 . snd . T.breakOn " - ") <$> text ("h3" @: [])
               case mcode of
                   "" -> mzero
-                  _ -> return $ Masters "F" mcode mname
+                  _ -> return $ Masters prog mcode mname
 
 readMasters tid | T.take 2 tid == "ak"    = ""
                 | otherwise               = T.toUpper tid
 
-scrapeCourses = scrape table
+scrapeCourses prog year = scrape table
     where table = do
               tid <- attr "id" ("h3" @: [])
 
@@ -81,23 +125,24 @@ scrapeCourses = scrape table
           course tid = do
               cls <- attr "class" ("tr" @: [])
               tds <- texts ("td" @: [])
-              case courseFromRow "f" cls tid tds of
+              case courseFromRow prog year cls tid tds of
                   Just c -> return c
                   Nothing -> mzero
 
-courseFromRow prog_ cls_ tid_ tds_ =
+-- REFACTOR ME
+courseFromRow prog validYear cls_ tid_ tds_ =
     let cls = T.strip cls_ -- Used to identify periodical courses
         tid = T.strip tid_ -- Used to distinguish master's/basic courses
-        programme = T.strip prog_
         tds = map T.strip tds_
 
     in case (cls, tds) of
-    -- Periodic course, masters
-    ("periodiserad", [code, credits, level, _, _, year, _, _, name, comment, _, _, _]) ->
+    -- Periodic course, basic
+    ("periodiserad", [code, credits, level, _, _, name, comment, _, _, _]) ->
         Just $ genCourseAndRelation ( code
                                     , credits
                                     , level
-                                    , Just year
+                                    , Nothing
+                                    , validYear
                                     , name
                                     , comment
                                     , True
@@ -105,15 +150,33 @@ courseFromRow prog_ cls_ tid_ tds_ =
                                     , ""
                                     , ""
                                     , ""
-                                    , programme
+                                    , prog
+                                    , tid
+                                    )
+    -- Periodic course, masters
+    ("periodiserad", [code, credits, level, _, _, progYear, _, _, name, comment, _, _, _]) ->
+        Just $ genCourseAndRelation ( code
+                                    , credits
+                                    , level
+                                    , Just progYear
+                                    , validYear
+                                    , name
+                                    , comment
+                                    , True
+                                    , ""
+                                    , ""
+                                    , ""
+                                    , ""
+                                    , prog
                                     , tid
                                     )
     -- Periodic course, elective
-    ("periodiserad", [code, credits, level, _, year, _, _, name, comment, _, _, _]) ->
+    ("periodiserad", [code, credits, level, _, progYear, _, _, name, comment, _, _, _]) ->
         Just $ genCourseAndRelation ( code
                                     , credits
                                     , level
-                                    , Just year
+                                    , Just progYear
+                                    , validYear
                                     , name
                                     , comment
                                     , True
@@ -121,7 +184,7 @@ courseFromRow prog_ cls_ tid_ tds_ =
                                     , ""
                                     , ""
                                     , ""
-                                    , programme
+                                    , prog
                                     , tid
                                     )
     -- Table headers
@@ -133,6 +196,7 @@ courseFromRow prog_ cls_ tid_ tds_ =
                                     , credits
                                     , level
                                     , Nothing
+                                    , validYear
                                     , name
                                     , comment
                                     , False
@@ -140,15 +204,16 @@ courseFromRow prog_ cls_ tid_ tds_ =
                                     , lp2
                                     , lp3
                                     , lp4
-                                    , programme
+                                    , prog
                                     , tid
                                     )
     -- Masters courses
-    (_, [code, credits, level, _, _, year, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
+    (_, [code, credits, level, _, _, progYear, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
         Just $ genCourseAndRelation ( code
                                     , credits
                                     , level
-                                    , Just year
+                                    , Just progYear
+                                    , validYear
                                     , name
                                     , comment
                                     , False
@@ -156,15 +221,16 @@ courseFromRow prog_ cls_ tid_ tds_ =
                                     , lp2
                                     , lp3
                                     , lp4
-                                    , programme
+                                    , prog
                                     , tid
                                     )
     -- Elective courses
-    (_, [code, credits, level, _, year, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
+    (_, [code, credits, level, _, progYear, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
         Just $ genCourseAndRelation ( code
                                     , credits
                                     , level
-                                    , Just year
+                                    , Just progYear
+                                    , validYear
                                     , name
                                     , comment
                                     , False
@@ -172,7 +238,7 @@ courseFromRow prog_ cls_ tid_ tds_ =
                                     , lp2
                                     , lp3
                                     , lp4
-                                    , programme
+                                    , prog
                                     , tid
                                     )
 
@@ -180,7 +246,8 @@ courseFromRow prog_ cls_ tid_ tds_ =
 genCourseAndRelation ( code
                      , credits
                      , level
-                     , year
+                     , progYear
+                     , validYear
                      , name
                      , comment
                      , periodical
@@ -188,7 +255,7 @@ genCourseAndRelation ( code
                      , lp2
                      , lp3
                      , lp4
-                     , programme
+                     , prog
                      , tid
                      ) =
     ( Course { courseCode = rCode code
@@ -197,10 +264,11 @@ genCourseAndRelation ( code
              , courseName = rName name
              }
     , CourseRelation { courseRelCode = rCode code
-                     , courseRelProgramme = rProgramme programme
+                     , courseRelProgramme = rProgramme prog
                      , courseRelType = rType tid
                      , courseRelMasters = readMasters tid
-                     , courseRelYear = rYear year tid
+                     , courseRelProgYear = rYear progYear tid
+                     , courseRelValidYear = validYear
                      , courseRelComment = rComment comment
                      , courseRelPeriod = rPeriod periodical lp1 lp2 lp3 lp4
                      }
@@ -322,10 +390,6 @@ readCeqPeriod year period = do
     return $ case s of
         HT -> Period y s p
         VT -> Period (y + 1) s p
-
-tread = read . T.unpack
-
-treadMaybe = readMaybe . T.unpack
 
 --
 -- Master's

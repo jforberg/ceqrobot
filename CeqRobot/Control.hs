@@ -1,90 +1,127 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module CeqRobot.Control
-( run
+( InitQueue(..)
+, run
 )
 where
 
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
+import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Network.HTTP.Client
+import Network.HTTP.Conduit
+import System.IO
 
 import CeqRobot.Database
 import CeqRobot.Model
 import CeqRobot.Scraper
 import CeqRobot.Util
 
-fromYear = 2010
-toYear = 2017
+data InitQueue = YesInitQueue | NoInitQueue
+    deriving (Show, Read, Eq)
 
-run :: IO ()
-run = do
+lotPrio = 1.0
+ceqPrio = 2.0
+
+scrapeDelay = 500 * 1000
+
+run :: InitQueue -> IO ()
+run iq = do
+    TIO.putStrLn "Open database connection.."
     conn <- getConn
-    initQueueIfNeeded conn
+
+    when (iq == YesInitQueue) $ do
+        TIO.putStrLn "Scraping root page..."
+        void $ performScrape conn $ ScrapeJob "root" genRootUrl Nothing
+
+    TIO.putStrLn "Beginning main scrape pass..."
     runIteration conn
 
 runIteration conn = do
-   m <- peekQueueScrape conn
-   case m of
+   msj <- peekQueueScrape conn
+
+   case msj of
        Nothing -> return ()
-       Just (t, ref) -> do
-           res <- performScrapeCeq conn ref
-           dequeueScrape conn t ref
-           threadDelay 2000000
+       Just sj@(ScrapeJob t ref meta) -> do
+           performScrape conn sj
+           dequeueScrape conn sj
+
+           hFlush stdout
+
+           threadDelay scrapeDelay
            runIteration conn
 
-initQueueIfNeeded conn = do
-    js <- peekQueueScrape conn
+performScrape conn sj@(ScrapeJob t ref _) = do
+    logScrape t ref "begin"
 
-    when (js == Nothing) $ do
-        forM_ [fromYear..toYear] $ \y -> do
-            when (y /= toYear) $ do
-                deleteCourseRelations conn
+    ret <- try $ case t of
+        "root" -> performScrapeRoot conn sj
+        "lot" -> performScrapeLot conn sj
+        "ceq" -> performScrapeCeq conn sj
 
-            let url = genLotUrl y
-            (cs, ms) <- scrapeLot url
-            logScrape "course" url "ok"
+    case ret of
+        Left (HttpExceptionRequest _ _) -> do
+            logScrape t ref "fail/http"
+            return False
+        Right False -> do
+            logScrape t ref "fail/parse"
+            return False
+        Right True -> do
+            logScrape t ref "ok"
+            return True
 
-            forM_ ms $ \m -> do
-                insertMasters conn m
-                print m
+performScrapeRoot conn (ScrapeJob _ url _) = do
+    (years, programmes) <- scrapeRoot url
 
-            forM_ cs $ \(c, r) -> do
-                insertCourse conn c
-                insertCourseRelation conn r
-                queueScrape conn "ceq" (courseCode c)
-                print (c, r)
+    forM_ programmes $ \p -> do
+        print p
+        forM_ years $ \y -> do
+            let url = genLotUrl (programmeCode p) y
+                meta = tshow (programmeCode p, y)
 
-performScrapeCeq conn code = do
-    res <- forM periodPerms $ \p -> do
-        let url = genCeqUrl code p
-        ret <- tryPerformScrapeCeq url
+            insertProgramme conn p
+            queueScrape conn lotPrio $ ScrapeJob "lot" url (Just meta)
+            print (p, y)
 
-        case ret of
-            Left _ -> do
-                logScrape "ceq" url "fail/http"
-                return False
-            Right Nothing -> do
-                logScrape "ceq" url "fail/parse"
-                return False
-            Right (Just c) -> do
-                logScrape "ceq" url "ok"
-                insertCeq conn c
-                return True
-    return $ any id res
+    return $ not (null years) && not (null programmes)
 
-tryPerformScrapeCeq :: Text -> IO (Either HttpException (Maybe Ceq))
-tryPerformScrapeCeq = try . scrapeCeq
+performScrapeLot conn (ScrapeJob _ url meta) = do
+    let (prog, year) = tread . fromJust $ meta
+
+    (coursesRelations, masters) <- scrapeLot prog year url
+
+    forM_ masters $ \m -> do
+        insertMasters conn m
+        print m
+
+    forM_ coursesRelations $ \(c, r) -> do
+        insertCourse conn c
+        print c
+
+        insertCourseRelation conn r
+        print r
+
+        let mperiod = guessCeqPeriod year (courseRelPeriod r)
+
+        case mperiod of
+            Nothing -> return ()
+            Just period -> do
+                let url = genCeqUrl (courseCode c) period
+                queueScrape conn ceqPrio $ ScrapeJob "ceq" url Nothing
+
+    return $ not (null masters) && not (null coursesRelations)
+
+performScrapeCeq conn (ScrapeJob _ url _) = do
+    mq <- scrapeCeq url
+
+    case mq of
+        Just q -> insertCeq conn q >> print q >> return True
+        Nothing -> return False
 
 logScrape :: Text -> Text -> Text -> IO ()
-logScrape t url stat = TIO.putStrLn $ "[{}] {} -> {}" `format` (t, url, stat)
-
-periodPerms = do
-    y <- reverse [fromYear..toYear]
-    s <- [HT, VT]
-    p <- [1, 2]
-    return $ Period (fromIntegral y) s (fromIntegral p)
+logScrape t url stat = TIO.putStrLn $ "[{}] {} {}" `format` (t, T.toUpper stat, url)

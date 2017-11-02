@@ -5,6 +5,8 @@
 
 module CeqRobot.Database
 ( getConn
+, insertProgramme
+, loadProgrammes
 , insertCourse
 , loadCourses
 , loadCourseRelations
@@ -38,6 +40,23 @@ dbConf = defaultPGDatabase
 getConn :: IO PGConnection
 getConn = pgConnect dbConf
 
+insertProgramme :: PGConnection -> Programme -> IO ()
+insertProgramme conn (Programme c n) = void $ pgExecute conn [pgSQL|
+        insert into programme( code
+                             , name
+                             )
+        values (${c}, ${n})
+        on conflict (code) do update
+        set code = ${c}
+          , name = ${n}
+    |]
+
+loadProgrammes :: PGConnection -> IO [Programme]
+loadProgrammes conn = map (uncurry Programme) <$> pgQuery conn [pgSQL|
+        select code, name
+        from programme
+    |]
+
 insertCourse :: PGConnection -> Course -> IO ()
 insertCourse conn course =
     let c = courseCode course
@@ -67,7 +86,8 @@ insertCourseRelation conn cr =
         t = show $ courseRelType cr
         m = courseRelMasters cr
         co = courseRelComment cr
-        y = courseRelYear cr
+        py = courseRelProgYear cr
+        vy = courseRelValidYear cr
         (pd, lp1, lp2, lp3, lp4) = encPeriod $ courseRelPeriod cr
     in
         void $ pgExecute conn [pgSQL|
@@ -76,22 +96,24 @@ insertCourseRelation conn cr =
                                        , type
                                        , masters
                                        , comment
-                                       , year
+                                       , programmeYear
+                                       , validYear
                                        , periodical
                                        , lp1
                                        , lp2
                                        , lp3
                                        , lp4
                                        )
-            values (${c}, ${p}, ${t}, ${m}, ${co}, ${y},
+            values (${c}, ${p}, ${t}, ${m}, ${co}, ${py}, ${vy},
                     ${pd}, ${lp1}, ${lp2}, ${lp3}, ${lp4})
-            on conflict (code, programme, masters) do update
+            on conflict (code, programme, masters, validYear) do update
             set code = ${c}
               , programme = ${p}
               , type = ${t}
               , masters = ${m}
               , comment = ${co}
-              , year = ${y}
+              , programmeYear = ${py}
+              , validYear = ${vy}
               , periodical = ${pd}
               , lp1 = ${lp1}
               , lp2 = ${lp2}
@@ -131,21 +153,24 @@ loadCourseRelations conn = map f <$> pgQuery conn [pgSQL|
              , r.type
              , r.masters
              , r.comment
-             , r.year
+             , r.programmeYear
+             , r.validYear
              , r.periodical
              , r.lp1
              , r.lp2
              , r.lp3
              , r.lp4
         from course_relation r
+        where r.validYear = (select max(validYear) from course_relation)
     |]
-    where f (co, pr, ty, ma, cm, ye, pe, l1, l2, l3, l4) =
+    where f (co, pr, ty, ma, cm, py, vy, pe, l1, l2, l3, l4) =
               CourseRelation { courseRelCode = co
                              , courseRelProgramme = pr
                              , courseRelType = read ty
                              , courseRelMasters = ma
                              , courseRelComment = cm
-                             , courseRelYear = ye
+                             , courseRelProgYear = py
+                             , courseRelValidYear = vy
                              , courseRelPeriod = if pe then Periodical
                                                        else Lp l1 l2 l3 l4
                              }
@@ -170,7 +195,6 @@ loadMasters conn = do
              , code
              , name
         from masters
-        where lower(programme) = 'f'
     |]
 
     return . map (uncurryN Masters) $ rs
@@ -276,24 +300,27 @@ loadCourseAliases conn = catMaybes . map f <$> pgQuery conn [pgSQL|
               f (_, Nothing) = Nothing
               f (Just a, Just b) = Just (a, b)
 
-queueScrape :: PGConnection -> Text -> Text -> IO ()
-queueScrape conn t ref = void $ pgExecute conn [pgSQL|
-        insert into queue(type, ref)
-        values (${t}, ${ref})
+queueScrape :: PGConnection -> Double -> ScrapeJob -> IO ()
+queueScrape conn basePrio (ScrapeJob t ref meta) =
+    void $ pgExecute conn [pgSQL|
+        insert into queue(type, ref, meta, prio)
+        values (${t}, ${ref}, ${meta}, ${basePrio} + random())
         on conflict (type, ref) do update
-        set prio = random(), updated = now()
+        set meta = ${meta}
+          , prio = ${basePrio} + random()
+          , updated = now()
     |]
 
-peekQueueScrape :: PGConnection -> IO (Maybe (Text, Text))
-peekQueueScrape conn = listToMaybe <$> pgQuery conn [pgSQL|
-        select type, ref
+peekQueueScrape :: PGConnection -> IO (Maybe ScrapeJob)
+peekQueueScrape conn = listToMaybe . map (uncurryN ScrapeJob) <$> pgQuery conn [pgSQL|
+        select type, ref, meta
         from queue
-        order by prio
+        order by prio asc
         limit 1
     |]
 
-dequeueScrape :: PGConnection -> Text -> Text -> IO ()
-dequeueScrape conn t ref = void $ pgExecute conn [pgSQL|
+dequeueScrape :: PGConnection -> ScrapeJob -> IO ()
+dequeueScrape conn (ScrapeJob t ref _) = void $ pgExecute conn [pgSQL|
         delete from queue
         where type = ${t} and ref = ${ref}
     |]

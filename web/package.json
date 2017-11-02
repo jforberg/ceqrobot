@@ -1,11 +1,8 @@
 {
   "name": "ceqrobot",
-  "version": "0.1.0",
-  "description": "ceqrobot",
-  "main": "index.js",
-  "scripts": {},
   "author": "Johan Förberg",
-  "license": "proprietary",
+  "version": "0.1.0",
+  "private": true,
   "devDependencies": {
     "babel-core": "^6.26.0",
     "babel-loader": "^7.1.2",
@@ -15,6 +12,7 @@
     "webpack": "^3.8.1"
   },
   "dependencies": {
+    "chart.js": "^2.7.1",
     "react": "^16.0.0",
     "react-dom": "^16.0.0",
     "sprintf-js": "^1.1.1"

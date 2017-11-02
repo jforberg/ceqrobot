@@ -1,6 +1,32 @@
 import React from 'react'
 
-export default class TableControls extends React.Component {
+const interestingProgrammes =
+        [ 'A'
+        , 'B'
+        , 'BI'
+        , 'BME'
+        , 'C'
+        , 'D'
+        , 'E'
+        , 'F'
+        , 'I'
+        , 'ID'
+        , 'K'
+        , 'L'
+        , 'M'
+        , 'MD'
+        , 'N'
+        , 'PI'
+        , 'RH'
+        , 'V'
+        , 'W'
+        ]
+    , interestingMap = interestingProgrammes.reduce((acc, x) => {
+        acc[x] = true
+        return acc
+      }, {})
+
+export default class CourseControls extends React.Component {
   constructor(props) {
     super(props)
 
@@ -14,14 +40,23 @@ export default class TableControls extends React.Component {
   }
 
   getCourseRels() {
-    return db.programmes[this.state.programme][this.state.masters]
+    let masters = db.lotMap[this.state.programme]
+
+    if (!masters)
+      return []
+    else
+      return masters[this.state.masters] || []
   }
 
   handleChange(e) {
     let key = e.target.name
       , val = e.target.value
+      , update = { [key]: val }
 
-    this.setState({ [key]: val }, () => {
+    if (key === 'programme' && val !== this.state.programme)
+      update.masters = ''
+
+    this.setState(update, () => {
       this.props.courseRelsCallback(this.getCourseRels())
     })
   }
@@ -32,9 +67,15 @@ export default class TableControls extends React.Component {
 
   render() {
     let programmesList = Object.keys(db.programmes)
-      , mastersList = Object.keys(db.programmes[this.state.programme])
+          .filter(p => interestingMap[p])
+          .sort()
 
-      , progName = 'Teknisk fysik'
+      , mastersList = Object.keys(db.masters[this.state.programme])
+          .concat([''])
+          .filter(m => m !== 'EXJOBB')
+          .sort()
+
+      , progName = db.programmes[this.state.programme].name
       , mastersName = this.state.masters === ''? 'Hela programmet' :
           db.masters[this.state.programme][this.state.masters].name
 

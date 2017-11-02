@@ -8,18 +8,58 @@ body {
   margin: 0;
 }
 
-h1 {
-  font-size: 18pt;
+.header {
   background: #eedddd;
   margin: 8px 0;
-  padding: 2px 16px;
-  clear: none;
+  padding: 6px 16px;
+  position: relative;
 }
 
-small.tagline {
-  position: absolute;
-  top: 16px;
-  right: 12px;
+h1 {
+  font-size: 18pt;
+  margin: 0;
+  float: left;
+}
+
+ul.menu {
+  float: left;
+  padding: 0;
+  margin: 0;
+  margin-left: 2rem;
+  line-height: 1.8;
+}
+
+ul.menu li {
+  margin: 0;
+  /*margin-left: 1.0rem;*/
+  padding: 0;
+  list-style: none;
+  display: inline;
+}
+
+.menu li:after {
+  content: ' \00b7';
+}
+
+.menu li:before {
+  content: ' ';
+}
+
+.menu li:last-child:after {
+  content: none;
+}
+
+li.menuSelected {
+  font-weight: bold;
+}
+
+.clearFix {
+  clear: both;
+}
+
+span.tagline {
+  float: right;
+  line-height: 1.8;
 }
 
 .tableControls {
@@ -64,29 +104,29 @@ small.tagline {
   margin: 4px 12px;
 }
 
-table.course-table {
+table.courseTable {
   border-collapse: collapse;
   width: 100%;
 }
 
-table.course-table tbody tr.odd {
+table.courseTable tbody tr.odd {
   background: #eeeee0;
 }
 
-table.course-table tbody tr.even {
+table.courseTable tbody tr.even {
   background: none;
 }
 
-table.course-table td, table.course-table th {
+table.courseTable td, table.courseTable th {
   padding: 2px 4px;
 }
 
-table.course-table td {
+table.courseTable td {
   border-left: 1px solid #fffff4;
   border-right: 1px solid #fffff4;
 }
 
-table.course-table th {
+table.courseTable th {
   border-bottom: 1px solid black;
 }
 
@@ -97,4 +137,12 @@ a.sortControl {
 span.sortindicator {
   font-size: 80%;
   position: absolute;
+}
+
+td.courseName {
+  cursor: pointer;
+}
+
+.afterTable {
+  margin: 16px 5px 16px 5px;
 }

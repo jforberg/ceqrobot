@@ -1,6 +1,6 @@
 import React from 'react'
 
-import TableControls from './TableControls'
+import CourseControls from './CourseControls'
 import CourseRow from './CourseRow'
 import CourseHeader from './CourseHeader'
 
@@ -31,6 +31,7 @@ export default class CourseTable extends React.Component {
                      , 'percentPassed'
                      ]
         , revProps = [ 'credits'
+                     , 'period'
                      , 'ceqPeriod'
                      , 'satisfaction'
                      , 'relevance'
@@ -64,11 +65,13 @@ export default class CourseTable extends React.Component {
   }
 
   render() {
+    let count = this.state.courses.length
+
     return (
       <div>
-        <TableControls courseRelsCallback={this.handleControls} />
+        <CourseControls courseRelsCallback={this.handleControls} />
         <div className='tableContainer'>
-          <table className='course-table'>
+          <table className='courseTable'>
             <CourseHeader sortCallback={this.handleSort} />
             <tbody>
               {this.state.courses.map((c, i) => {
@@ -76,6 +79,14 @@ export default class CourseTable extends React.Component {
               })}
             </tbody>
           </table>
+          <div className='afterTable'>
+            <p>
+              Totalt {count} kurs{count === 0? '' : 'er'}.
+            </p>
+            <p>
+              Informationens korrekthet garanteras ej.
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -83,15 +94,13 @@ export default class CourseTable extends React.Component {
 }
 
 function dataForCourse(rel) {
-  let qs = db.ceqs[rel.code]
+  let qs = db.ceqs[rel.code] || []
+    , as = db.aliases[rel.code] || []
 
-  if (!qs || !qs.length) {
-    let as = db.aliases[rel.code] || []
-
-    qs = []
-
+  if (!qs.length) {
     as.forEach(a => {
-      qs = qs.concat(db.ceqs[a])
+      if (db.ceqs[a])
+        qs = qs.concat(db.ceqs[a])
     })
   }
 
@@ -106,7 +115,7 @@ function dataForCourse(rel) {
     qs = [{}]
 
   return Object.assign(
-    {}, db.courses[rel.code], rel, { ceqs: qs })
+    {}, db.courses[rel.code], rel, { ceqs: qs, aliases: as })
 }
 
 function sorter(accessor, comparator, order) {
