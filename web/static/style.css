@@ -107,6 +107,11 @@ span.tagline {
 table.courseTable {
   border-collapse: collapse;
   width: 100%;
+  display: block;
+}
+
+tr.expanded {
+  background: white;
 }
 
 table.courseTable tbody tr.odd {
@@ -114,7 +119,6 @@ table.courseTable tbody tr.odd {
 }
 
 table.courseTable tbody tr.even {
-  background: none;
 }
 
 table.courseTable td, table.courseTable th {
@@ -141,6 +145,10 @@ span.sortindicator {
 
 td.courseName {
   cursor: pointer;
+}
+
+tr.fillRow {
+  height: 100%;
 }
 
 .afterTable {

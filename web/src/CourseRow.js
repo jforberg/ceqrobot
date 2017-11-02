@@ -1,5 +1,6 @@
 import React from 'react'
 import 'sprintf-js'
+import Chart from 'chart.js'
 
 export default class CourseRow extends React.Component {
   constructor(props) {
@@ -19,6 +20,7 @@ export default class CourseRow extends React.Component {
         , ceqFragmentSpan = 7
 
     let rowParity = this.props.index % 2 === 0? 'even' : 'odd'
+
       , firstRow = (
           <tr key={0} className={rowParity}>
             <CourseRowFragment data={this.props.data}
@@ -26,6 +28,7 @@ export default class CourseRow extends React.Component {
             <CeqRowFragment data={this.props.data.ceqs[0]} />
           </tr>
         )
+
       , ceqCount = this.props.data.ceqs.length
 
     if (this.state.expanded) {
@@ -42,7 +45,7 @@ export default class CourseRow extends React.Component {
         return [ firstRow
                , <tr key={1} className={rowParity}>
                    <td colSpan={courseFragmentSpan}
-                       rowSpan={ceqCount - 1}
+                       rowSpan={ceqCount - 1 + 1}
                        style={{verticalAlign: 'top'}}>
                      <CourseInfo data={this.props.data} />
                    </td>
@@ -54,6 +57,12 @@ export default class CourseRow extends React.Component {
                      <CeqRowFragment data={q} />
                    </tr>
                  ))
+               ).concat(
+                 <tr key={99} className={`${rowParity} fillRow`}>
+                   {[...Array(ceqFragmentSpan).keys()].map(i =>
+                     <td key={i}></td>
+                   )}
+                 </tr>
                )
     } else {
       return firstRow
@@ -180,16 +189,20 @@ class CeqRowFragment extends React.Component {
     function percent(n) {
       if (Number.isNaN(n))
         return unknown()
-      else
-        return sprintf('%02d%%', n * 100)
+
+      let str = sprintf('%02d%%', n * 100)
+        , goodness = Math.round(400 * Math.max(n - 0.5, 0))
+        , badness = Math.round(700 * Math.abs(Math.min(n - 0.5, 0)))
+        , colour = `rgb(${badness}, ${goodness}, 0)`
+
+      return <span style={{color: colour}}>{str}</span>
     }
 
     function periodLink(ps, url) {
       if (!ps)
         return ''
 
-      let [y, s, p] = ps
-        , str = sprintf('%s%s%s', y, s, p).toUpperCase()
+      let str = formatCeqPeriod(ps)
 
       return (
         <a href={url}>{str}</a>
@@ -207,13 +220,13 @@ class CeqRowFragment extends React.Component {
     let q = this.props.data
 
     return (
-      [ cTd(0, periodLink(q.ceqPeriod, q.url))
-      , cTd(1, plusMin(q.satisfaction))
-      , cTd(2, plusMin(q.relevance))
-      , cTd(3, plusMin(q.quality))
-      , cTd(4, plusMin(q.workload))
-      , cTd(5, q.registered)
-      , cTd(6, percent(q.passed / q.registered))
+      [ cTd('ceqPeriod', periodLink(q.ceqPeriod, q.url))
+      , cTd('satisfaction', plusMin(q.satisfaction))
+      , cTd('relevance', plusMin(q.relevance))
+      , cTd('quality', plusMin(q.quality))
+      , cTd('workload', plusMin(q.workload))
+      , cTd('registered', q.registered)
+      , cTd('percentPassed', percent(q.passed / q.registered))
       ]
     )
   }
@@ -228,7 +241,83 @@ class CourseInfo extends React.Component {
       aliasStr = 'aka. ' + as.join(', ')
 
     return (
-      <span>{aliasStr}</span>
+      <div className='chartContainer'>
+        <span>{aliasStr}</span>
+        <div>
+          <CourseChart data={this.props.data} />
+        </div>
+      </div>
     )
   }
+}
+
+class CourseChart extends React.Component {
+  componentDidMount() {
+    let ceqs = this.props.data.ceqs.slice().reverse()
+      , labels = ceqs.map(q => formatCeqPeriod(q.ceqPeriod))
+      , config =
+          { type: 'line'
+          , data:
+              { labels: labels
+              , datasets:
+                  [ { label: 'Övl'
+                    , borderColor: '#ff9999'
+                    , data: ceqs.map(q => q.satisfaction)
+                    , fill: false
+                    }
+                  , { label: 'Ang'
+                    , borderColor: '#99ff99'
+                    , data: ceqs.map(q => q.relevance)
+                    , fill: false
+                    , hidden: true
+                    }
+                  , { label: 'Udv'
+                    , borderColor: '#9999ff'
+                    , data: ceqs.map(q => q.quality)
+                    , fill: false
+                    , hidden: true
+                    }
+                  , { label: 'Arb'
+                    , borderColor: '#ffff99'
+                    , data: ceqs.map(q => q.workload)
+                    , fill: false
+                    , hidden: true
+                    }
+                  , { label: 'Reg'
+                    , borderColor: '#99ffff'
+                    , data: ceqs.map(q => q.registered)
+                    , fill: false
+                    , hidden: true
+                    }
+                  , { label: 'G%'
+                    , borderColor: '#ff99ff'
+                    , data: ceqs.map(q => Math.round(100 * q.percentPassed))
+                    , fill: false
+                    , hidden: true
+                    }
+                  ]
+              }
+          }
+
+      , context = this.chartElement.getContext('2d')
+
+    config.data.datasets.forEach(d => d.cubicInterpolationMode = 'monotone')
+
+    this.chart = new Chart(context, config)
+  }
+
+  componentWillUmount() {
+    this.chart.destroy()
+    this.chart = null
+  }
+
+  render() {
+    return <canvas ref={e => this.chartElement = e} />
+  }
+}
+
+function formatCeqPeriod(ps) {
+  let [y, s, p] = ps
+
+  return sprintf('%s%s%s', y, s, p).toUpperCase()
 }

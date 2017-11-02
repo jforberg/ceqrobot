@@ -84,7 +84,7 @@ export default class CourseTable extends React.Component {
               Totalt {count} kurs{count === 0? '' : 'er'}.
             </p>
             <p>
-              Informationens korrekthet garanteras ej.
+              Informationens korrekthet kan ej garanteras.
             </p>
           </div>
         </div>
