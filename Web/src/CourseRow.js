@@ -257,6 +257,12 @@ class CourseChart extends React.Component {
       , labels = ceqs.map(q => formatCeqPeriod(q.ceqPeriod))
       , config =
           { type: 'line'
+          , options:
+              { tooltips:
+                  { mode: 'index'
+                  , intersect: false
+                  }
+              }
           , data:
               { labels: labels
               , datasets:
