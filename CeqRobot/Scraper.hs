@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module CeqRobot.Scraper
 ( genRootUrl
@@ -11,6 +12,7 @@ module CeqRobot.Scraper
 )
 where
 
+import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString.Lazy as LBS
 import Data.Function
@@ -24,6 +26,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Text.Encoding
 import Network.HTTP.Conduit
+import Text.RE.TDFA.Text
 import Text.Read
 import Text.HTML.Scalpel
 import Text.HTML.TagSoup
@@ -108,7 +111,7 @@ scrapeMasters prog = scrape masters
               mcode <- readMasters <$> attr "id" ("h3" @: [])
               mname <- (T.drop 3 . snd . T.breakOn " - ") <$> text ("h3" @: [])
               case mcode of
-                  "" -> mzero
+                  "" -> empty
                   _ -> return $ Masters prog mcode mname
 
 readMasters tid | T.take 2 tid == "ak"    = ""
@@ -117,182 +120,84 @@ readMasters tid | T.take 2 tid == "ak"    = ""
 scrapeCourses prog year = scrape table
     where table = do
               tid <- attr "id" ("h3" @: [])
+              ths <- map T.strip <$> chroots ("th" @: []) header
 
               case tid of
-                  "exjobb" -> mzero
-                  _ -> chroots ("tr" @: []) (course tid)
+                  "exjobb" -> empty
+                  _ -> chroots ("tr" @: []) (course tid ths)
 
-          course tid = do
-              cls <- attr "class" ("tr" @: [])
-              tds <- texts ("td" @: [])
-              case courseFromRow prog year cls tid tds of
+          header = strongHeader <|> lpHeader <|> plainHeader
+
+          strongHeader = text ("strong" @: [])
+
+          lpHeader = do
+              str <- text anySelector
+              case matchedText $ str ?=~ [re|lp[0-9]|] of
+                  Nothing -> empty
+                  Just t -> return t
+
+          plainHeader = text anySelector
+
+          course tid ths = do
+              cls <- T.strip <$> attr "class" ("tr" @: [])
+              tds <- map T.strip <$> texts ("td" @: [])
+
+              case courseFromRow prog year cls tid (rowMap ths tds) of
                   Just c -> return c
-                  Nothing -> mzero
+                  Nothing -> empty
 
--- REFACTOR ME
-courseFromRow prog validYear cls_ tid_ tds_ =
-    let cls = T.strip cls_ -- Used to identify periodical courses
-        tid = T.strip tid_ -- Used to distinguish master's/basic courses
-        tds = map T.strip tds_
+          rowMap ths tds = M.fromList $ zip ths tds
 
-    in case (cls, tds) of
-    -- Periodic course, basic
-    ("periodiserad", [code, credits, level, _, _, name, comment, _, _, _]) ->
-        Just $ genCourseAndRelation ( code
-                                    , credits
-                                    , level
-                                    , Nothing
-                                    , validYear
-                                    , name
-                                    , comment
-                                    , True
-                                    , ""
-                                    , ""
-                                    , ""
-                                    , ""
-                                    , prog
-                                    , tid
-                                    )
-    -- Periodic course, masters
-    ("periodiserad", [code, credits, level, _, _, progYear, _, _, name, comment, _, _, _]) ->
-        Just $ genCourseAndRelation ( code
-                                    , credits
-                                    , level
-                                    , Just progYear
-                                    , validYear
-                                    , name
-                                    , comment
-                                    , True
-                                    , ""
-                                    , ""
-                                    , ""
-                                    , ""
-                                    , prog
-                                    , tid
-                                    )
-    -- Periodic course, elective
-    ("periodiserad", [code, credits, level, _, progYear, _, _, name, comment, _, _, _]) ->
-        Just $ genCourseAndRelation ( code
-                                    , credits
-                                    , level
-                                    , Just progYear
-                                    , validYear
-                                    , name
-                                    , comment
-                                    , True
-                                    , ""
-                                    , ""
-                                    , ""
-                                    , ""
-                                    , prog
-                                    , tid
-                                    )
-    -- Table headers
-    (_, []) ->
-        Nothing
-    -- Basic courses
-    (_, [code, credits, level, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
-        Just $ genCourseAndRelation ( code
-                                    , credits
-                                    , level
-                                    , Nothing
-                                    , validYear
-                                    , name
-                                    , comment
-                                    , False
-                                    , lp1
-                                    , lp2
-                                    , lp3
-                                    , lp4
-                                    , prog
-                                    , tid
-                                    )
-    -- Masters courses
-    (_, [code, credits, level, _, _, progYear, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
-        Just $ genCourseAndRelation ( code
-                                    , credits
-                                    , level
-                                    , Just progYear
-                                    , validYear
-                                    , name
-                                    , comment
-                                    , False
-                                    , lp1
-                                    , lp2
-                                    , lp3
-                                    , lp4
-                                    , prog
-                                    , tid
-                                    )
-    -- Elective courses
-    (_, [code, credits, level, _, progYear, _, _, name, comment, _, _, lp1, lp2, lp3, lp4]) ->
-        Just $ genCourseAndRelation ( code
-                                    , credits
-                                    , level
-                                    , Just progYear
-                                    , validYear
-                                    , name
-                                    , comment
-                                    , False
-                                    , lp1
-                                    , lp2
-                                    , lp3
-                                    , lp4
-                                    , prog
-                                    , tid
-                                    )
+courseFromRow :: Text -> Int32 -> Text -> Text -> Map Text Text -> Maybe (Course, CourseRelation)
+courseFromRow prog validYear cls tid m = do
+    let find = (m M.!?)
 
--- Mega function from hell. Handles all parsing etc. of course metadata
-genCourseAndRelation ( code
-                     , credits
-                     , level
-                     , progYear
-                     , validYear
-                     , name
-                     , comment
-                     , periodical
-                     , lp1
-                     , lp2
-                     , lp3
-                     , lp4
-                     , prog
-                     , tid
-                     ) =
-    ( Course { courseCode = rCode code
-             , courseCredits = rCredits credits
-             , courseLevel = rLevel level
-             , courseName = rName name
-             }
-    , CourseRelation { courseRelCode = rCode code
-                     , courseRelProgramme = rProgramme prog
-                     , courseRelType = rType tid
-                     , courseRelMasters = readMasters tid
-                     , courseRelProgYear = rYear progYear tid
-                     , courseRelValidYear = validYear
-                     , courseRelComment = rComment comment
-                     , courseRelPeriod = rPeriod periodical lp1 lp2 lp3 lp4
-                     }
-    )
-    where rCode = T.toUpper
+    code    <- find "Kurskod"    >>= rCode
+    credits <- find "Poäng"      >>= rCredits
+    level   <- find "Nivå"       >>= rLevel
+    name    <- find "Kursnamn"   >>= rName
+    comment <- find "Fot\xadnot" >>= rComment -- \xad = soft hyphen
 
-          rCredits = let f ',' = '.'; f c = c in read . map f . T.unpack
+    let lp1 = find "lp1"
+        lp2 = find "lp2"
+        lp3 = find "lp3"
+        lp4 = find "lp4"
 
-          rLevel "G1" = LevelG1
-          rLevel "G2" = LevelG2
-          rLevel "A" = LevelA
+    period <- rPeriod cls lp1 lp2 lp3 lp4
+
+    let progYear = find "Ingår i åk"
+    year <- fromIntegral <$> rYear progYear tid
+
+    let programme = rProgramme prog
+        typ = rType tid
+        masters = readMasters tid
+
+    return ( Course code credits level name
+           , CourseRelation code programme typ masters comment validYear year period
+           )
+
+    where rCode = Just . T.toUpper
+
+          rCredits = let f ',' = '.'; f c = c in readMaybe . map f . T.unpack
+
+          rLevel "G1" = Just LevelG1
+          rLevel "G2" = Just LevelG2
+          rLevel "A"  = Just LevelA
+          rLevel _    = Nothing
 
           -- tid is like "ak1_O"
-          rYear Nothing tid = fromIntegral . tread . T.take 1 . T.drop 2 $ tid
-          rYear (Just y) _ = fromIntegral . tread $ y
+          rYear Nothing tid = readMaybe . take 1 . drop 2 . T.unpack $ tid
+          rYear (Just y) _  = readMaybe . T.unpack $ y
 
-          rName = id
+          rName = Just
 
           -- like "X\n       asdf"
-          rComment = T.strip . T.drop 1
+          rComment = Just . T.strip . T.drop 1
 
-          rPeriod True _ _ _ _ = Periodical
-          rPeriod False lp1 lp2 lp3 lp4 =
-              Lp (lp1 /= "") (lp2 /= "") (lp3 /= "") (lp4 /= "")
+          rPeriod "periodiserad" _ _ _ _ = Just Periodical
+          rPeriod _ (Just lp1) (Just lp2) (Just lp3) (Just lp4) =
+              Just $ Lp (lp1 /= "") (lp2 /= "") (lp3 /= "") (lp4 /= "")
+          rPeriod _ _ _ _ _ = Nothing
 
           rProgramme = T.toUpper
 
@@ -338,9 +243,9 @@ ceqFromMap url m = do
         f = (m M.!?)
 
     -- Required info; failed parse => failed scrape
-    code <- f "Kurskod" >>= ltm >>= rCode
-    year <- f "Läsår" >>= ltm
-    lp <- f "Kursen slutade i läsperiod" >>= ltm
+    code   <- f "Kurskod" >>= ltm >>= rCode
+    year   <- f "Läsår" >>= ltm
+    lp     <- f "Kursen slutade i läsperiod" >>= ltm
     period <- readCeqPeriod year lp
 
     -- Optional info; failed parse => Nothing field
@@ -368,7 +273,6 @@ ceqFromMap url m = do
                , ceqSatisfaction= sat
                }
 
-readCeqPeriod :: Text -> Text -> Maybe Period
 readCeqPeriod year period = do
     -- year on the form "201516"
     let y_ = T.take 4 $ year
@@ -391,6 +295,3 @@ readCeqPeriod year period = do
         HT -> Period y s p
         VT -> Period (y + 1) s p
 
---
--- Master's
---
