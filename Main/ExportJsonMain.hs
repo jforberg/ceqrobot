@@ -10,6 +10,7 @@ import qualified Data.ByteString.Lazy as LBS
 import CeqRobot.Database
 import CeqRobot.Export
 
+main :: IO ()
 main = do
     conn <- getConn
 
@@ -21,4 +22,4 @@ main = do
     as <- loadCourseAliases conn
 
     LBS.putStr "var db = "
-    LBS.putStr . exportData $ (PreDatabase ps cs rs ms qs as)
+    LBS.putStr . exportData $ PreDatabase ps cs rs ms qs as

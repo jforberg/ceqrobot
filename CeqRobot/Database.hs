@@ -4,7 +4,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module CeqRobot.Database
-( getConn
+( DB
+, getConn
 , insertProgramme
 , loadProgrammes
 , insertCourse
@@ -24,15 +25,16 @@ module CeqRobot.Database
 where
 
 import Control.Monad
-import Data.Int
 import Data.Maybe
 import Data.Text (Text)
-import qualified Data.Text as T
 import Data.Tuple.Curry
 import Database.PostgreSQL.Typed
 
 import CeqRobot.Model
 
+type DB = PGConnection
+
+dbConf :: PGDatabase
 dbConf = defaultPGDatabase
     { pgDBName = "ceqrobot"
     }
@@ -122,8 +124,8 @@ insertCourseRelation conn cr =
               , updated = now()
         |]
 
-encPeriod Periodical = (True, False, False, False, False)
-encPeriod (Lp x1 x2 x3 x4) = (False, x1, x2, x3, x4)
+    where encPeriod Periodical = (True, False, False, False, False)
+          encPeriod (Lp x1 x2 x3 x4) = (False, x1, x2, x3, x4)
 
 deleteCourseRelations :: PGConnection -> IO ()
 deleteCourseRelations conn = void $ pgExecute conn [pgSQL|
@@ -290,7 +292,7 @@ loadCeqs conn = do
                       }
 
 loadCourseAliases :: PGConnection -> IO [(Text, Text)]
-loadCourseAliases conn = catMaybes . map f <$> pgQuery conn [pgSQL|
+loadCourseAliases conn = mapMaybe f <$> pgQuery conn [pgSQL|
         select distinct greatest(c1.code, c2.code)
                       , least(c1.code, c2.code)
         from course c1, course c2

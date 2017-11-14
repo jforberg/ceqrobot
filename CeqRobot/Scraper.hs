@@ -13,26 +13,22 @@ module CeqRobot.Scraper
 where
 
 import Control.Applicative
-import Control.Monad
 import qualified Data.ByteString.Lazy as LBS
-import Data.Function
+import Data.ByteString (ByteString)
 import Data.Int
-import Data.List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import Data.Text.Encoding
 import Network.HTTP.Conduit
 import Text.RE.TDFA.Text
 import Text.Read
-import Text.HTML.Scalpel
+import Text.HTML.Scalpel hiding (decoder)
 import Text.HTML.TagSoup
 
 import CeqRobot.Model
-import CeqRobot.Database
 import CeqRobot.Util
 
 genLotUrl :: Text -> Int32 -> Text
@@ -55,10 +51,13 @@ guessCeqPeriod year (Lp _ True _ _) = Just $ Period year HT 2
 guessCeqPeriod year (Lp True _ _ _) = Just $ Period year HT 1
 guessCeqPeriod _ _ = Nothing
 
+loadHttp :: (ByteString -> Text) -> Text -> IO Text
 loadHttp decoder url = decoder . LBS.toStrict <$> simpleHttp (T.unpack url)
 
+loadTagsUtf8 :: Text -> IO [Tag Text]
 loadTagsUtf8 = (parseTags <$>) . loadHttp decodeUtf8
 
+loadTagsLatin1 :: Text -> IO [Tag Text]
 loadTagsLatin1 = (parseTags <$>) . loadHttp decodeLatin1
 
 --
@@ -74,13 +73,15 @@ scrapeRoot url = do
 
     return (ys, ps)
 
+scrapeYears :: [Tag Text] -> Maybe [Int32]
 scrapeYears = scrape years
     where years = chroot ("select" @: ["name" @= "lasar"]) years'
 
-          years' = catMaybes . map rYear <$> texts ("option" @: [])
+          years' = mapMaybe rYear <$> texts ("option" @: [])
 
           rYear = readMaybe . T.unpack . fst . T.breakOn "/"
 
+scrapeProgrammes :: [Tag Text] -> Maybe [Programme]
 scrapeProgrammes = scrape programmes
     where programmes = chroots ("label" @: []) programme
 
@@ -97,15 +98,14 @@ scrapeProgrammes = scrape programmes
 
 scrapeLot :: Text -> Int32 -> Text -> IO ([(Course, CourseRelation)], [Masters])
 scrapeLot prog year url = do
-    ts <- tablesTags <$> loadTagsUtf8 url
+    ts <- partitions (isTagOpenName "h3") <$> loadTagsUtf8 url
 
-    let cs = concat . catMaybes . map (scrapeCourses prog year) $ ts
-        ms = catMaybes . map (scrapeMasters prog) $ ts
+    let cs = concat . mapMaybe (scrapeCourses prog year) $ ts
+        ms = mapMaybe (scrapeMasters prog) ts
 
     return (cs, ms)
 
-tablesTags ts = partitions (isTagOpenName "h3") ts
-
+scrapeMasters :: Text -> [Tag Text] -> Maybe Masters
 scrapeMasters prog = scrape masters
     where masters = do
               mcode <- readMasters <$> attr "id" ("h3" @: [])
@@ -114,9 +114,11 @@ scrapeMasters prog = scrape masters
                   "" -> empty
                   _ -> return $ Masters prog mcode mname
 
+readMasters :: Text -> Text
 readMasters tid | T.take 2 tid == "ak"    = ""
                 | otherwise               = T.toUpper tid
 
+scrapeCourses :: Text -> Int32 -> [Tag Text] -> Maybe [(Course, CourseRelation)]
 scrapeCourses prog year = scrape table
     where table = do
               tid <- attr "id" ("h3" @: [])
@@ -166,10 +168,11 @@ courseFromRow prog validYear cls tid m = do
     period <- rPeriod cls lp1 lp2 lp3 lp4
 
     let progYear = find "Ingår i åk"
-    year <- fromIntegral <$> rYear progYear tid
+    year <- rYear progYear
+
+    typ <- rType
 
     let programme = rProgramme prog
-        typ = rType tid
         masters = readMasters tid
 
     return ( Course code credits level name
@@ -186,8 +189,8 @@ courseFromRow prog validYear cls tid m = do
           rLevel _    = Nothing
 
           -- tid is like "ak1_O"
-          rYear Nothing tid = readMaybe . take 1 . drop 2 . T.unpack $ tid
-          rYear (Just y) _  = readMaybe . T.unpack $ y
+          rYear Nothing = readMaybe . take 1 . drop 2 . T.unpack $ tid
+          rYear (Just y) = readMaybe . T.unpack $ y
 
           rName = Just
 
@@ -201,47 +204,34 @@ courseFromRow prog validYear cls tid m = do
 
           rProgramme = T.toUpper
 
-          rType tid | T.take 2 tid == "ak"   = case (T.takeEnd 1 tid) of
-                                                   "O" -> Obligatory
-                                                   "A" -> AltObligatory
-                    | otherwise              = Elective
+          rType | T.take 2 tid == "ak"   = case T.takeEnd 1 tid of
+                                                   "O" -> Just Obligatory
+                                                   "A" -> Just AltObligatory
+                                                   _   -> Nothing
+                | otherwise              = Just Elective
 
 --
 -- CEQ
 --
 
 scrapeCeq :: Text -> IO (Maybe Ceq)
-scrapeCeq url = ceqFromMap url . mapFromRows . fromJust . ceqRows <$> loadTagsLatin1 url
+scrapeCeq url = parseCeq <$> loadTagsLatin1 url
+    where parseCeq ts = mapFromRows <$> ceqRows ts >>= ceqFromMap url
 
-ceqRows ts = map (map T.strip) <$> scrape rows ts
-    where rows = chroots ("tr" @: []) row
+          ceqRows ts = map (map T.strip) <$> scrape rows ts
+
+          rows = chroots ("tr" @: []) row
+
           row = texts ("td" @: [])
 
-mapFromRows :: [[Text]] -> Map Text [Text]
-mapFromRows = M.fromList . entries
-    where entries [] = []
-          entries ([]:rs) = entries rs
+          mapFromRows = M.fromList . entries
+
+          entries []          = []
+          entries ([]:rs)     = entries rs
           entries ((c:cs):rs) = (c, cs) : entries rs
 
 ceqFromMap :: Text -> Map Text [Text] -> Maybe Ceq
 ceqFromMap url m = do
-    let ltm = listToMaybe
-
-        -- on the form "123 / 49%"
-        rSlashed = r . T.strip . fst . T.breakOn "/"
-            where r "" = 0
-                  r s = tread s
-
-        -- on the form "+123" or "-123" or "0"
-        rSigned s | T.take 1 s == "+"    = tread $ T.drop 1 s
-                  | otherwise            = tread s
-
-        -- on the form "FFFF05     <crap>"
-        rCode :: Text -> Maybe Text
-        rCode = ltm . T.words
-
-        f = (m M.!?)
-
     -- Required info; failed parse => failed scrape
     code   <- f "Kurskod" >>= ltm >>= rCode
     year   <- f "Läsår" >>= ltm
@@ -259,33 +249,51 @@ ceqFromMap url m = do
         rel = f "Kursen känns angelägen för min utbildning" >>= fmap rSigned. ltm
         sat = f "Överlag är jag nöjd med den här kursen" >>= fmap rSigned . ltm
 
-    Just $ Ceq { ceqCourseCode = code
-               , ceqPeriod = period
-               , ceqUrl = url
-               , ceqRegistered = reg
-               , ceqPassed = pass
-               , ceqResponded = resp
-               , ceqQuality = qual
-               , ceqGoals = goal
-               , ceqUnderstanding = und
-               , ceqWorkload = work
-               , ceqRelevance = rel
-               , ceqSatisfaction= sat
-               }
+    Just Ceq { ceqCourseCode = code
+             , ceqPeriod = period
+             , ceqUrl = url
+             , ceqRegistered = reg
+             , ceqPassed = pass
+             , ceqResponded = resp
+             , ceqQuality = qual
+             , ceqGoals = goal
+             , ceqUnderstanding = und
+             , ceqWorkload = work
+             , ceqRelevance = rel
+             , ceqSatisfaction= sat
+             }
 
+          -- on the form "123 / 49%"
+    where rSlashed = r . T.strip . fst . T.breakOn "/"
+          r "" = 0
+          r s = tread s
+
+          -- on the form "+123" or "-123" or "0"
+          rSigned s | T.take 1 s == "+"    = tread $ T.drop 1 s
+                    | otherwise            = tread s
+
+          -- on the form "FFFF05     <crap>"
+          rCode :: Text -> Maybe Text
+          rCode = ltm . T.words
+
+          ltm = listToMaybe
+
+          f = (m M.!?)
+
+readCeqPeriod :: Text -> Text -> Maybe Period
 readCeqPeriod year period = do
     -- year on the form "201516"
-    let y_ = T.take 4 $ year
+    let y_ = T.take 4 year
     y <- treadMaybe y_
 
     -- period on the form "VT_LP2"
-    let s_ = T.take 2 $ period
+    let s_ = T.take 2 period
     s <- case T.toLower s_ of
         "vt" -> Just VT
         "ht" -> Just HT
         _ -> Nothing
 
-    let p_ = T.drop 3 $ period
+    let p_ = T.drop 3 period
     p <- case T.toLower p_ of
         "lp1" -> Just 1
         "lp2" -> Just 2

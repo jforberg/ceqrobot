@@ -14,7 +14,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Network.HTTP.Client
-import Network.HTTP.Conduit
 import System.IO
 
 import CeqRobot.Database
@@ -25,9 +24,13 @@ import CeqRobot.Util
 data InitQueue = YesInitQueue | NoInitQueue
     deriving (Show, Read, Eq)
 
+lotPrio :: Double
 lotPrio = 1.0
+
+ceqPrio :: Double
 ceqPrio = 2.0
 
+scrapeDelay :: Int
 scrapeDelay = 500 * 1000
 
 run :: InitQueue -> IO ()
@@ -42,13 +45,14 @@ run iq = do
     TIO.putStrLn "Beginning main scrape pass..."
     runIteration conn
 
+runIteration :: DB -> IO ()
 runIteration conn = do
    msj <- peekQueueScrape conn
 
    case msj of
        Nothing -> return ()
-       Just sj@(ScrapeJob t ref meta) -> do
-           performScrape conn sj
+       Just sj -> do
+           void $ performScrape conn sj
            dequeueScrape conn sj
 
            hFlush stdout
@@ -56,17 +60,22 @@ runIteration conn = do
            threadDelay scrapeDelay
            runIteration conn
 
+performScrape :: DB -> ScrapeJob -> IO Bool
 performScrape conn sj@(ScrapeJob t ref _) = do
     logScrape t ref "begin"
 
     ret <- try $ case t of
         "root" -> performScrapeRoot conn sj
-        "lot" -> performScrapeLot conn sj
-        "ceq" -> performScrapeCeq conn sj
+        "lot"  -> performScrapeLot conn sj
+        "ceq"  -> performScrapeCeq conn sj
+        _      -> error $ "Invalid scrape type `" ++ T.unpack t ++ "`"
 
     case ret of
         Left (HttpExceptionRequest _ _) -> do
             logScrape t ref "fail/http"
+            return False
+        Left (InvalidUrlException _ _) -> do
+            logScrape t ref "fail/url"
             return False
         Right False -> do
             logScrape t ref "fail/parse"
@@ -75,21 +84,23 @@ performScrape conn sj@(ScrapeJob t ref _) = do
             logScrape t ref "ok"
             return True
 
+performScrapeRoot :: DB -> ScrapeJob -> IO Bool
 performScrapeRoot conn (ScrapeJob _ url _) = do
     (years, programmes) <- scrapeRoot url
 
     forM_ programmes $ \p -> do
         print p
         forM_ years $ \y -> do
-            let url = genLotUrl (programmeCode p) y
+            let queueUrl = genLotUrl (programmeCode p) y
                 meta = tshow (programmeCode p, y)
 
             insertProgramme conn p
-            queueScrape conn lotPrio $ ScrapeJob "lot" url (Just meta)
+            queueScrape conn lotPrio $ ScrapeJob "lot" queueUrl (Just meta)
             print (p, y)
 
     return $ not (null years) && not (null programmes)
 
+performScrapeLot :: DB -> ScrapeJob -> IO Bool
 performScrapeLot conn (ScrapeJob _ url meta) = do
     let (prog, year) = tread . fromJust $ meta
 
@@ -111,11 +122,12 @@ performScrapeLot conn (ScrapeJob _ url meta) = do
         case mperiod of
             Nothing -> return ()
             Just period -> do
-                let url = genCeqUrl (courseCode c) period
-                queueScrape conn ceqPrio $ ScrapeJob "ceq" url Nothing
+                let queueUrl = genCeqUrl (courseCode c) period
+                queueScrape conn ceqPrio $ ScrapeJob "ceq" queueUrl Nothing
 
     return $ not (null masters) && not (null coursesRelations)
 
+performScrapeCeq :: DB -> ScrapeJob -> IO Bool
 performScrapeCeq conn (ScrapeJob _ url _) = do
     mq <- scrapeCeq url
 

@@ -12,7 +12,7 @@ executable scraper
   ghc-options:         -Wall
   default-language:    Haskell2010
 
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.10 && <4.11
                      , ceqrobot == 0.1.0
 
 executable exportjson
@@ -21,12 +21,12 @@ executable exportjson
   ghc-options:         -Wall
   default-language:    Haskell2010
 
-  build-depends:       base >=4.9 && <4.10
+  build-depends:       base >=4.10 && <4.11
                      , bytestring >=0.10 && <0.11
                      , ceqrobot == 0.1.0
 
 library
-  ghc-options:         -Wall
+  ghc-options:         -Wall -Wno-orphans
   default-language:    Haskell2010
 
   exposed-modules:     CeqRobot.Control
@@ -37,7 +37,7 @@ library
                      , CeqRobot.Util
 
   build-depends:       aeson >=1.2 && <1.3
-                     , base >=4.9 && <4.10
+                     , base >=4.10 && <4.11
                      , bytestring >=0.10 && <0.11
                      , containers >=0.5.10 && <0.6
                      , http-client >=0.5 && <0.6

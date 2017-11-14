@@ -9,16 +9,12 @@ where
 
 import Data.Aeson
 import Data.ByteString.Lazy (ByteString)
-import Data.Function
-import Data.List
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import Data.Text (Text)
 
 import CeqRobot.Model
-
-import CeqRobot.Database -- DEBUG
 
 data PreDatabase = PreDatabase
     { pdbProgrammes :: [Programme]
@@ -125,23 +121,23 @@ exportData = encode . buildDatabase
 
 buildDatabase :: PreDatabase -> Database
 buildDatabase (PreDatabase ps cs rs ms qs as) = Database pmap cmap qmap amap mmap lmap
-    where pmap = M.fromList [(programmeCode p, p) | p <- ps]
+    where pmap = collectSingle programmeCode ps
 
-          cmap = M.fromList [(courseCode c, c) | c <- cs]
+          cmap = collectSingle courseCode cs
 
-          qmap = M.fromListWith (++) [(ceqCourseCode q, [q]) | q <- qs]
+          qmap = collectMany ceqCourseCode qs
 
           amap = M.fromListWith (++) . concat $ [ [(a1, [a2]), (a2, [a1])] | (a1, a2) <- as]
 
-          mmap = M.map g mmap'
-          g ms' = M.fromList [(mastersCode m, m) | m <- ms']
+          mmap = M.map (collectSingle mastersCode)  mmap'
+          mmap' = collectMany mastersProgramme ms
 
-          mmap' = M.fromListWith (++) [(mastersProgramme m, [m]) | m <- ms]
+          lmap = M.map (collectMany courseRelMasters) lmap'
+          lmap' = collectMany courseRelProgramme rs
 
-          lmap = M.map f lmap'
-          f rs' = M.fromListWith (++) [(courseRelMasters r, [r]) | r <- rs']
+          collectMany keyf vs = M.fromListWith (++) [(keyf v, [v]) | v <- vs]
 
-          lmap' = M.fromListWith (++) [(courseRelProgramme r, [r]) | r <- rs]
+          collectSingle keyf vs = M.fromList [(keyf v, v) | v <- vs]
 
 jsonShow :: Show a => a -> Value
 jsonShow = toJSON . T.toLower . T.pack . show

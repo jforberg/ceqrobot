@@ -7,6 +7,7 @@ import System.Environment
 
 import CeqRobot.Control
 
+main :: IO ()
 main = do
    args <- getArgs
 

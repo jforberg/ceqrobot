@@ -12,9 +12,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text.Format as F
+import Data.Text.Format.Params (Params)
 import Text.Read
 
---format
+format :: Params ps => F.Format -> ps -> Text
 format f ps = LT.toStrict $ F.format f ps
 
 tread :: Read a => Text -> a
