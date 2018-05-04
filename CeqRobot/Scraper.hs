@@ -9,6 +9,10 @@ module CeqRobot.Scraper
 , scrapeRoot
 , scrapeLot
 , scrapeCeq
+-- Private functions exposed for testing
+, parseCeq
+, parseMasters
+, parseCourses
 )
 where
 
@@ -33,7 +37,7 @@ import CeqRobot.Util
 
 genLotUrl :: Text -> Int32 -> Text
 genLotUrl p y =
-    "https://kurser.lth.se/lot/?lasar={}_{}&sort1=lp&sort2=slut_lp&sort3=namn&prog={}&forenk=t&val=program&soek=t" `format`
+    "https://kurser.lth.se/lot/?lasar={}_{}&sort1=lp&sort2=slut_lp&sort3=namn&prog={}&forenk=t&val=program&soek=t&lang=sv" `format`
     (y `mod` 100, (y + 1) `mod` 100, p)
 
 genCeqUrl :: Text -> Period -> Text
@@ -100,13 +104,13 @@ scrapeLot :: Text -> Int32 -> Text -> IO ([(Course, CourseRelation)], [Masters])
 scrapeLot prog year url = do
     ts <- partitions (isTagOpenName "h3") <$> loadTagsUtf8 url
 
-    let cs = concat . mapMaybe (scrapeCourses prog year) $ ts
-        ms = mapMaybe (scrapeMasters prog) ts
+    let cs = concat . mapMaybe (parseCourses prog year) $ ts
+        ms = mapMaybe (parseMasters prog) ts
 
     return (cs, ms)
 
-scrapeMasters :: Text -> [Tag Text] -> Maybe Masters
-scrapeMasters prog = scrape masters
+parseMasters :: Text -> [Tag Text] -> Maybe Masters
+parseMasters prog = scrape masters
     where masters = do
               mcode <- readMasters <$> attr "id" ("h3" @: [])
               mname <- (T.drop 3 . snd . T.breakOn " - ") <$> text ("h3" @: [])
@@ -118,8 +122,8 @@ readMasters :: Text -> Text
 readMasters tid | T.take 2 tid == "ak"    = ""
                 | otherwise               = T.toUpper tid
 
-scrapeCourses :: Text -> Int32 -> [Tag Text] -> Maybe [(Course, CourseRelation)]
-scrapeCourses prog year = scrape table
+parseCourses :: Text -> Int32 -> [Tag Text] -> Maybe [(Course, CourseRelation)]
+parseCourses prog year = scrape table
     where table = do
               tid <- attr "id" ("h3" @: [])
               ths <- map T.strip <$> chroots ("th" @: []) header
@@ -154,7 +158,7 @@ courseFromRow :: Text -> Int32 -> Text -> Text -> Map Text Text -> Maybe (Course
 courseFromRow prog validYear cls tid m = do
     let find = (m M.!?)
 
-    code    <- find "Kurskod"    >>= rCode
+    code    <- find "Kurs\xadkod"    >>= rCode
     credits <- find "Poäng"      >>= rCredits
     level   <- find "Nivå"       >>= rLevel
     name    <- find "Kursnamn"   >>= rName
@@ -215,10 +219,11 @@ courseFromRow prog validYear cls tid m = do
 --
 
 scrapeCeq :: Text -> IO (Maybe Ceq)
-scrapeCeq url = parseCeq <$> loadTagsLatin1 url
-    where parseCeq ts = mapFromRows <$> ceqRows ts >>= ceqFromMap url
+scrapeCeq url = parseCeq url <$> loadTagsLatin1 url
 
-          ceqRows ts = map (map T.strip) <$> scrape rows ts
+parseCeq :: Text -> [Tag Text] -> Maybe Ceq
+parseCeq url ts = mapFromRows <$> ceqRows >>= ceqFromMap url
+    where ceqRows = map (map T.strip) <$> scrape rows ts
 
           rows = chroots ("tr" @: []) row
 

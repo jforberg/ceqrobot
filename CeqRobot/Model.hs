@@ -54,7 +54,7 @@ data Course = Course
     , courseLevel :: CourseLevel
     , courseName :: Text
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 data CourseRelation = CourseRelation
     { courseRelCode :: Text
@@ -66,7 +66,7 @@ data CourseRelation = CourseRelation
     , courseRelProgYear :: Int32
     , courseRelPeriod :: CoursePeriod
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 data Ceq = Ceq
     { ceqCourseCode :: Text
@@ -91,7 +91,7 @@ data Ceq = Ceq
     -- "Överlag är jag nöjd med kursen"
     , ceqSatisfaction :: Maybe Int32
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 data Masters = Masters
     { mastersProgramme :: Text
