@@ -35,7 +35,7 @@ scrapeDelay = 500 * 1000
 
 run :: InitQueue -> IO ()
 run iq = do
-    TIO.putStrLn "Open database connection.."
+    TIO.putStrLn "Opening database connection..."
     conn <- getConn
 
     when (iq == YesInitQueue) $ do
@@ -44,6 +44,8 @@ run iq = do
 
     TIO.putStrLn "Beginning main scrape pass..."
     runIteration conn
+
+    TIO.putStrLn "Queue is empty; nothing more to scrape."
 
 runIteration :: DB -> IO ()
 runIteration conn = do
