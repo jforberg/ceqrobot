@@ -35,10 +35,21 @@ import Text.HTML.TagSoup
 import CeqRobot.Model
 import CeqRobot.Util
 
+--
+-- URL GENERATION
+--
+
 genLotUrl :: Text -> Int32 -> Text
 genLotUrl p y =
-    "https://kurser.lth.se/lot/?lasar={}_{}&sort1=lp&sort2=slut_lp&sort3=namn&prog={}&forenk=t&val=program&soek=t&lang=sv" `format`
-    (y `mod` 100, (y + 1) `mod` 100, p)
+    "https://kurser.lth.se/lot/?lasar={}&sort1=lp&sort2=slut_lp&sort3=namn&prog={}&forenk=t&val=program&soek=t" `format`
+    (fmtLotYear y, p)
+
+fmtLotYear :: Int32 -> Text
+fmtLotYear y = y1 `T.append` "_" `T.append` y2
+    where y1 = zeroPad $ y `mod` 100
+          y2 = zeroPad $ (y + 1) `mod` 100
+          zeroPad n | n < 10    = "0" `T.append` tshow n
+                    | otherwise = tshow n
 
 genCeqUrl :: Text -> Period -> Text
 genCeqUrl code (Period year sem p) =
