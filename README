@@ -1,0 +1,32 @@
+CEQROBOT
+
+Scraper and website generator for LTH course evaluations.
+
+BUILDING
+
+I suggest you use stack (haskellstack.org) to avoid at least some of the hell
+that is Haskell package management.
+
+Ceqrobot uses a Postgres database, which must be available EVEN WHEN COMPILING.
+This is because the compiler connects to the database to determine the
+input/output types of SQL statements so that they can be typechecked. Assuming
+you have a local Postgres database 'ceqrobot' with user 'ceqrobot' and no
+password, it should be sufficient to source /env.source to make this work.
+
+The database schema should be initialised from schema.sql, for instance by
+running psql ceqrobot <schema.sql.
+
+RUNNING
+
+The progam ./scraper is used to download the course plans and course
+evaluations from the web. Run ./scraper -i to queue up the index page, which
+will lead to all necessary pages being scraped. The queue persist between
+scraper invocations, so it is safe to kill the scraper and then restart it
+later. New scrapes will automatically overwrite any old duplicates with the
+same URL.
+
+The scraper will terminate when there is nothing left to scrape. Then you can
+run mkdir Web/dist; ./exportjson >Web/dist/db.js to prepare a JSON file for the
+webpage.
+
+The final step is to cd to Web/; run npm install and then run ./webpack.
